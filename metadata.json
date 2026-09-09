@@ -1,0 +1,12 @@
+{
+  "name": "PashuCare AI",
+  "description": "Smart Animal Disease Detection & Livestock Health Assistant powered by AI vision and veterinary advisory for farmers.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

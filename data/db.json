@@ -1,0 +1,175 @@
+{
+  "users": [
+    {
+      "id": "admin-1",
+      "name": "Dr. A. K. Sharma (State Vet Advisor)",
+      "phone": "+91 94230 99881",
+      "email": "admin.pashu@gov.in",
+      "preferredLanguage": "en",
+      "farmName": "Veterinary Disease Surveillance Cell",
+      "farmLocation": "Central Animal Husbandry Directorate",
+      "role": "admin",
+      "createdAt": "2026-09-08T17:29:06.336Z"
+    },
+    {
+      "id": "google-1788889292443",
+      "name": "Akash Thakare",
+      "phone": "",
+      "email": "akashthakare157@gmail.com",
+      "preferredLanguage": "en",
+      "farmName": "Akash's Livestock Farm",
+      "farmLocation": "Maharashtra, India",
+      "role": "farmer",
+      "createdAt": "2026-09-08T17:41:32.443Z"
+    }
+  ],
+  "animals": [
+    {
+      "id": "anim-1",
+      "userId": "farmer-1",
+      "name": "Gauri",
+      "tagId": "IN-MH-2023-8821",
+      "type": "Cow",
+      "age": "4",
+      "gender": "Female",
+      "breed": "Gir Cow",
+      "weight": "380",
+      "farmLocation": "Main Shed - Bay A",
+      "photoUrl": "https://images.unsplash.com/photo-1546445317-29f4545e9d53?auto=format&fit=crop&w=600&q=80",
+      "healthScore": 84,
+      "lastCheckDate": "2026-09-06T17:29:06.336Z",
+      "status": "Healthy",
+      "createdAt": "2026-08-09T17:29:06.336Z",
+      "updatedAt": "2026-09-08T17:29:06.336Z"
+    },
+    {
+      "id": "anim-2",
+      "userId": "farmer-1",
+      "name": "Bhima",
+      "tagId": "IN-MH-2022-1102",
+      "type": "Buffalo",
+      "age": "5",
+      "gender": "Female",
+      "breed": "Murrah Buffalo",
+      "weight": "520",
+      "farmLocation": "Main Shed - Bay B",
+      "photoUrl": "https://images.unsplash.com/photo-1570042225831-d98fa7577f1e?auto=format&fit=crop&w=600&q=80",
+      "healthScore": 68,
+      "lastCheckDate": "2026-09-07T17:29:06.336Z",
+      "status": "Under Observation",
+      "createdAt": "2026-07-25T17:29:06.336Z",
+      "updatedAt": "2026-09-08T17:29:06.336Z"
+    }
+  ],
+  "health_reports": [
+    {
+      "id": "rep-1",
+      "reportCode": "PC-2026-001",
+      "userId": "farmer-1",
+      "animalId": "anim-2",
+      "animalName": "Bhima",
+      "animalType": "Buffalo",
+      "photoUrl": "https://images.unsplash.com/photo-1570042225831-d98fa7577f1e?auto=format&fit=crop&w=600&q=80",
+      "createdAt": "2026-09-07T17:29:06.336Z",
+      "symptoms": [
+        "Mild Fever",
+        "Loss of appetite",
+        "Skin problems"
+      ],
+      "temperature": "Mild Fever / Warm",
+      "behavior": "Dull / Sluggish",
+      "additionalInfo": "Slight swelling on flank and lower leg.",
+      "result": {
+        "animalDetected": true,
+        "detectedAnimalType": "Buffalo",
+        "imageQuality": {
+          "sufficient": true,
+          "reason": "Clear view of animal torso and skin"
+        },
+        "overallHealthStatus": "Needs Attention",
+        "riskLevel": "Medium",
+        "possibleConditions": [
+          {
+            "name": "Suspected Early Lumpy Skin / Insect Bite Hypersensitivity",
+            "confidence": 76,
+            "reason": "Mild cutaneous swelling and reported sluggishness with fever signs."
+          }
+        ],
+        "visibleSymptoms": [
+          "Skin irregularities",
+          "Slight dull posture"
+        ],
+        "reportedSymptoms": [
+          "Mild Fever",
+          "Loss of appetite",
+          "Skin problems"
+        ],
+        "possibleCauses": [
+          "Vector bite reaction or early poxvirus exposure in humid conditions"
+        ],
+        "generalRecommendations": [
+          "Isolate from other cattle in a well-ventilated dry stall",
+          "Keep insects away using mosquito nets and smoke dried neem leaves",
+          "Ensure ample clean hydration with electrolyte powder"
+        ],
+        "preventionTips": [
+          "Fly and tick control in the barn",
+          "Check herd vaccination records"
+        ],
+        "veterinarianRecommended": true,
+        "emergency": false,
+        "healthScore": 68,
+        "disclaimer": "This AI assessment is for preliminary informational purposes only and is not a substitute for diagnosis or treatment by a qualified veterinarian."
+      }
+    }
+  ],
+  "reminders": [
+    {
+      "id": "rem-1",
+      "userId": "farmer-1",
+      "animalId": "anim-1",
+      "animalName": "Gauri",
+      "title": "FMD Booster Vaccination",
+      "type": "vaccination",
+      "dueDate": "2026-09-13",
+      "completed": false,
+      "notes": "Government livestock dispensary vaccination camp",
+      "createdAt": "2026-09-08T17:29:06.336Z"
+    },
+    {
+      "id": "rem-2",
+      "userId": "farmer-1",
+      "animalId": "anim-2",
+      "animalName": "Bhima",
+      "title": "Deworming (Albendazole / Fenbendazole)",
+      "type": "deworming",
+      "dueDate": "2026-09-20",
+      "completed": false,
+      "notes": "Administer early morning on empty stomach with guidance",
+      "createdAt": "2026-09-08T17:29:06.336Z"
+    }
+  ],
+  "veterinarian_requests": [
+    {
+      "id": "vetreq-1",
+      "userId": "farmer-1",
+      "userName": "Ramesh Patil",
+      "userPhone": "+91 98221 54321",
+      "animalId": "anim-2",
+      "animalName": "Bhima",
+      "animalType": "Buffalo",
+      "symptoms": [
+        "Mild Fever",
+        "Loss of appetite",
+        "Skin problems"
+      ],
+      "preferredDate": "2026-09-09",
+      "preferredTime": "Morning (09:00 AM - 12:00 PM)",
+      "description": "Need on-site checkup for cutaneous nodules and fever.",
+      "reportId": "rep-1",
+      "status": "Pending",
+      "createdAt": "2026-09-08T17:29:06.336Z"
+    }
+  ],
+  "diseases": []
+}

@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="pashuGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#15803d" />
+      <stop offset="100%" stop-color="#047857" />
+    </linearGradient>
+    <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="12" flood-color="#047857" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+  <!-- Background Shield/Rounded Tile -->
+  <rect width="512" height="512" rx="128" fill="url(#pashuGrad)" />
+  
+  <!-- Subtle inner radial tone -->
+  <circle cx="256" cy="200" r="170" fill="#ffffff" fill-opacity="0.08" />
+
+  <!-- Animal & Cross Emblem Group -->
+  <g transform="translate(64, 64) scale(0.75)" filter="url(#softGlow)">
+    <!-- Cattle Head Silhouette / Emblem -->
+    <path d="M 256,110 C 230,110 200,90 140,80 C 130,78 120,84 125,95 C 135,120 160,160 175,180 C 160,195 145,225 145,260 C 145,340 195,400 256,400 C 317,400 367,340 367,260 C 367,225 352,195 337,180 C 352,160 377,120 387,95 C 392,84 382,78 372,80 C 312,90 282,110 256,110 Z" 
+          fill="#ffffff" />
+          
+    <!-- Ear Left -->
+    <path d="M 160,195 C 110,190 70,220 80,240 C 90,260 140,240 165,220 Z" fill="#ecfdf5" />
+    <!-- Ear Right -->
+    <path d="M 352,195 C 402,190 442,220 432,240 C 422,260 372,240 347,220 Z" fill="#ecfdf5" />
+
+    <!-- Medical Health Cross on forehead -->
+    <g transform="translate(256, 260)">
+      <!-- Cross background circle -->
+      <circle cx="0" cy="0" r="54" fill="#15803d" />
+      <!-- Vertical bar -->
+      <rect x="-11" y="-32" width="22" height="64" rx="6" fill="#ffffff" />
+      <!-- Horizontal bar -->
+      <rect x="-32" y="-11" width="64" height="22" rx="6" fill="#ffffff" />
+      <!-- Small spark / AI pulse in center -->
+      <circle cx="0" cy="0" r="5" fill="#10b981" />
+    </g>
+
+    <!-- Nose / Muzzle marking -->
+    <ellipse cx="256" cy="355" rx="42" ry="24" fill="#f1f5f9" />
+    <ellipse cx="242" cy="355" rx="7" ry="9" fill="#15803d" />
+    <ellipse cx="270" cy="355" rx="7" ry="9" fill="#15803d" />
+
+    <!-- Healthy Leaf Accent -->
+    <path d="M 256,60 C 290,30 340,40 350,80 C 320,95 275,80 256,60 Z" fill="#86efac" />
+  </g>
+</svg>
