@@ -479,18 +479,17 @@ export const LandingView: React.FC<LandingViewProps> = ({
             </button>
           </div>
 
-          <div className="pt-2 text-xs text-emerald-200 flex flex-wrap items-center justify-center gap-4">
-            <span className="flex items-center gap-1">
-              <ShieldCheck className="w-4 h-4 text-emerald-300" />
-              <span>Government 1962 Integrated</span>
-            </span>
-            <span>•</span>
-            <button
-              onClick={onOpenPrivacy}
-              className="underline hover:text-white cursor-pointer"
-            >
-              Veterinary & Privacy Guidelines
-            </button>
+          <div className="pt-6 border-t border-emerald-800/60 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
+            <div className="text-sm font-bold text-white tracking-wide">
+              Made for people & farmers
+            </div>
+            <div className="flex items-center gap-3 text-xs text-emerald-200/90 font-medium">
+              <a href="tel:1962" className="text-amber-300 hover:underline font-bold">
+                Emergency 1962 (Toll Free)
+              </a>
+              <span>•</span>
+              <span>@ 2026 all rights reserved</span>
+            </div>
           </div>
         </div>
       </section>

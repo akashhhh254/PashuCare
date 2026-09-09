@@ -17,6 +17,7 @@ import { LandingView } from './components/LandingView';
 import { AuthModal } from './components/AuthModal';
 import { PrivacyModal } from './components/PrivacyModal';
 import { ProfileView } from './components/ProfileView';
+import { Footer } from './components/Footer';
 import {
   AnimalProfile,
   HealthReport,
@@ -407,43 +408,14 @@ export default function App() {
         )}
       </main>
 
-      {/* Global Footer */}
-      <footer className="hidden sm:block border-t border-stone-200 bg-white py-6 text-xs text-stone-500">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <span className="font-bold text-stone-800">PashuCare AI</span> • Smart Animal Disease Detection & Livestock Assistant
-            <p className="text-[11px] text-stone-400 mt-0.5">
-              Powered by Google Gemini 3.8 Flash Vision AI. Emergency Helpline: 1962 (Toll Free).
-            </p>
-          </div>
-
-          <div className="flex items-center gap-4 text-xs font-semibold">
-            <button
-              onClick={() => setShowPrivacyModal(true)}
-              className="text-stone-600 hover:text-emerald-700 transition cursor-pointer"
-            >
-              Privacy & Medical Boundaries
-            </button>
-            <span>•</span>
-            <button
-              onClick={() => {
-                if (user) {
-                  setActiveTab('diseases');
-                } else {
-                  handleOpenAuth('register');
-                }
-              }}
-              className="text-stone-600 hover:text-emerald-700 transition cursor-pointer"
-            >
-              Disease Catalog
-            </button>
-            <span>•</span>
-            <a href="tel:1962" className="text-red-700 hover:underline font-bold">
-              Call 1962
-            </a>
-          </div>
-        </div>
-      </footer>
+      {/* Global Rich Livestock & Helpline Footer */}
+      <Footer
+        language={language}
+        user={user}
+        onNavigate={(tab) => setActiveTab(tab)}
+        onOpenAuth={handleOpenAuth}
+        onOpenPrivacy={() => setShowPrivacyModal(true)}
+      />
 
       {/* Mobile Bottom Navigation (Only for logged-in farmers) */}
       {user && (

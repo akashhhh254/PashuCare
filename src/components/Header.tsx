@@ -361,9 +361,22 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           )}
 
-          <div className="pt-3 border-t border-stone-100 flex items-center justify-between text-xs text-stone-500">
-            <span>Helpline: <strong>1962</strong></span>
-            <button onClick={onOpenPrivacy} className="underline text-emerald-700">Privacy & Charter</button>
+          <div className="pt-3 border-t border-stone-100 space-y-1 text-xs text-stone-500 text-center">
+            <div className="font-bold text-stone-800 text-xs">
+              Made for people & farmers
+            </div>
+            <div className="flex items-center justify-center gap-3 text-[11px] text-stone-400 pt-1">
+              <a href="tel:1962" className="text-red-600 font-bold hover:underline">
+                Call 1962 (Toll-Free)
+              </a>
+              <span>•</span>
+              <button onClick={onOpenPrivacy} className="underline hover:text-stone-600">
+                Privacy Charter
+              </button>
+            </div>
+            <p className="text-[10px] text-stone-400 pt-0.5">
+              @ 2026 all rights reserved
+            </p>
           </div>
         </div>
       )}

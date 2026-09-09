@@ -99,10 +99,13 @@ export const PrivacyModal: React.FC<PrivacyModalProps> = ({
           </div>
         </div>
 
-        <div className="p-4 bg-stone-50 border-t border-stone-100 flex justify-end">
+        <div className="p-4 bg-stone-50 border-t border-stone-100 flex flex-wrap items-center justify-between gap-3 text-xs text-stone-500">
+          <span className="text-[11px] font-medium text-stone-600">
+            © 2026 PashuCare AI • Made for people & farmers • All rights reserved
+          </span>
           <button
             onClick={onClose}
-            className="px-5 py-2 rounded-xl bg-emerald-700 text-white text-xs font-bold hover:bg-emerald-800 transition"
+            className="px-5 py-2 rounded-xl bg-emerald-700 text-white text-xs font-bold hover:bg-emerald-800 transition cursor-pointer"
           >
             Close
           </button>
