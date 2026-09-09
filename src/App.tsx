@@ -13,6 +13,7 @@ import { RemindersView } from './components/RemindersView';
 import { VeterinarianView } from './components/VeterinarianView';
 import { DiseaseLibraryView } from './components/DiseaseLibraryView';
 import { AdminView } from './components/AdminView';
+import { LandingView } from './components/LandingView';
 import { AuthModal } from './components/AuthModal';
 import { PrivacyModal } from './components/PrivacyModal';
 import { ProfileView } from './components/ProfileView';
@@ -258,141 +259,151 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 pb-20 sm:pb-8">
-        {activeTab === 'home' && (
-          <HomeView
+      <main className={`flex-1 ${user ? 'pb-20 sm:pb-8' : 'pb-8'}`}>
+        {!user ? (
+          <LandingView
             language={language}
-            onStartCheck={() => {
-              setPreselectedAnimalForCheck(null);
-              setActiveTab('check');
-            }}
-            onNavigate={(tab) => setActiveTab(tab)}
-          />
-        )}
-
-        {activeTab === 'dashboard' && (
-          <DashboardView
-            animals={animals}
-            reports={reports}
-            reminders={reminders}
-            user={user}
-            language={language}
-            onNavigate={(tab) => setActiveTab(tab)}
-            onSelectReport={(report) => {
-              setSelectedReport(report);
-              setActiveTab('report');
-            }}
-            onSelectAnimal={(animal) => {
-              setSelectedAnimal(animal);
-            }}
-          />
-        )}
-
-        {activeTab === 'check' && (
-          <HealthCheckForm
-            animals={animals}
-            language={language}
-            preselectedAnimal={preselectedAnimalForCheck}
-            onAnalysisComplete={(report) => {
-              setSelectedReport(report);
-              setReports((prev) => [report, ...prev]);
-              setActiveTab('report');
-              refreshData();
-            }}
-          />
-        )}
-
-        {activeTab === 'report' && (
-          <HealthReportView
-            report={selectedReport}
-            language={language}
-            onBack={() => setActiveTab('history')}
-            onRequestVet={() => {
-              setActiveTab('vet');
-            }}
-          />
-        )}
-
-        {activeTab === 'animals' && (
-          <AnimalsView
-            animals={animals}
-            language={language}
-            onAddAnimal={handleAddAnimal}
-            onSelectAnimal={(animal) => setSelectedAnimal(animal)}
-            onRunHealthCheck={(animal) => {
-              setPreselectedAnimalForCheck(animal);
-              setActiveTab('check');
-            }}
-          />
-        )}
-
-        {activeTab === 'history' && (
-          <HistoryView
-            reports={reports}
-            language={language}
-            onSelectReport={(report) => {
-              setSelectedReport(report);
-              setActiveTab('report');
-            }}
-            onDeleteReport={handleDeleteReport}
-            onStartNewCheck={() => {
-              setPreselectedAnimalForCheck(null);
-              setActiveTab('check');
-            }}
-          />
-        )}
-
-        {activeTab === 'reminders' && (
-          <RemindersView
-            reminders={reminders}
-            animals={animals}
-            language={language}
-            onAddReminder={handleAddReminder}
-            onToggleComplete={handleToggleReminderComplete}
-            onDeleteReminder={handleDeleteReminder}
-          />
-        )}
-
-        {activeTab === 'vet' && (
-          <VeterinarianView
-            animals={animals}
-            reports={reports}
-            user={user}
-            language={language}
-            preselectedReport={selectedReport}
-            onSubmitVetRequest={handleSubmitVetRequest}
-            pendingRequests={vetRequests}
-          />
-        )}
-
-        {activeTab === 'diseases' && (
-          <DiseaseLibraryView
-            language={language}
-            onNavigateToCheck={() => {
-              setPreselectedAnimalForCheck(null);
-              setActiveTab('check');
-            }}
-          />
-        )}
-
-        {activeTab === 'profile' && (
-          <ProfileView
-            user={user}
-            animals={animals}
-            reports={reports}
-            reminders={reminders}
-            language={language}
-            onLanguageChange={handleLanguageChange}
             onOpenAuth={handleOpenAuth}
-            onSignOut={handleSignOut}
             onOpenPrivacy={() => setShowPrivacyModal(true)}
-            onNavigate={(tab) => setActiveTab(tab)}
-            onClearCache={handleClearLocalCache}
           />
-        )}
+        ) : (
+          <>
+            {activeTab === 'home' && (
+              <HomeView
+                language={language}
+                onStartCheck={() => {
+                  setPreselectedAnimalForCheck(null);
+                  setActiveTab('check');
+                }}
+                onNavigate={(tab) => setActiveTab(tab)}
+              />
+            )}
 
-        {activeTab === 'admin' && (
-          <AdminView language={language} />
+            {activeTab === 'dashboard' && (
+              <DashboardView
+                animals={animals}
+                reports={reports}
+                reminders={reminders}
+                user={user}
+                language={language}
+                onNavigate={(tab) => setActiveTab(tab)}
+                onSelectReport={(report) => {
+                  setSelectedReport(report);
+                  setActiveTab('report');
+                }}
+                onSelectAnimal={(animal) => {
+                  setSelectedAnimal(animal);
+                }}
+              />
+            )}
+
+            {activeTab === 'check' && (
+              <HealthCheckForm
+                animals={animals}
+                language={language}
+                preselectedAnimal={preselectedAnimalForCheck}
+                onAnalysisComplete={(report) => {
+                  setSelectedReport(report);
+                  setReports((prev) => [report, ...prev]);
+                  setActiveTab('report');
+                  refreshData();
+                }}
+              />
+            )}
+
+            {activeTab === 'report' && (
+              <HealthReportView
+                report={selectedReport}
+                language={language}
+                onBack={() => setActiveTab('history')}
+                onRequestVet={() => {
+                  setActiveTab('vet');
+                }}
+              />
+            )}
+
+            {activeTab === 'animals' && (
+              <AnimalsView
+                animals={animals}
+                language={language}
+                onAddAnimal={handleAddAnimal}
+                onSelectAnimal={(animal) => setSelectedAnimal(animal)}
+                onRunHealthCheck={(animal) => {
+                  setPreselectedAnimalForCheck(animal);
+                  setActiveTab('check');
+                }}
+              />
+            )}
+
+            {activeTab === 'history' && (
+              <HistoryView
+                reports={reports}
+                language={language}
+                onSelectReport={(report) => {
+                  setSelectedReport(report);
+                  setActiveTab('report');
+                }}
+                onDeleteReport={handleDeleteReport}
+                onStartNewCheck={() => {
+                  setPreselectedAnimalForCheck(null);
+                  setActiveTab('check');
+                }}
+              />
+            )}
+
+            {activeTab === 'reminders' && (
+              <RemindersView
+                reminders={reminders}
+                animals={animals}
+                language={language}
+                onAddReminder={handleAddReminder}
+                onToggleComplete={handleToggleReminderComplete}
+                onDeleteReminder={handleDeleteReminder}
+              />
+            )}
+
+            {activeTab === 'vet' && (
+              <VeterinarianView
+                animals={animals}
+                reports={reports}
+                user={user}
+                language={language}
+                preselectedReport={selectedReport}
+                onSubmitVetRequest={handleSubmitVetRequest}
+                pendingRequests={vetRequests}
+              />
+            )}
+
+            {activeTab === 'diseases' && (
+              <DiseaseLibraryView
+                language={language}
+                onNavigateToCheck={() => {
+                  setPreselectedAnimalForCheck(null);
+                  setActiveTab('check');
+                }}
+              />
+            )}
+
+            {activeTab === 'profile' && (
+              <ProfileView
+                user={user}
+                animals={animals}
+                reports={reports}
+                reminders={reminders}
+                language={language}
+                onLanguageChange={handleLanguageChange}
+                onOpenAuth={handleOpenAuth}
+                onSignOut={handleSignOut}
+                onOpenPrivacy={() => setShowPrivacyModal(true)}
+                onNavigate={(tab) => setActiveTab(tab)}
+                onClearCache={handleClearLocalCache}
+              />
+            )}
+
+            {activeTab === 'admin' && (
+              <AdminView language={language} />
+            )}
+          </>
         )}
       </main>
 
@@ -409,14 +420,20 @@ export default function App() {
           <div className="flex items-center gap-4 text-xs font-semibold">
             <button
               onClick={() => setShowPrivacyModal(true)}
-              className="text-stone-600 hover:text-emerald-700 transition"
+              className="text-stone-600 hover:text-emerald-700 transition cursor-pointer"
             >
               Privacy & Medical Boundaries
             </button>
             <span>•</span>
             <button
-              onClick={() => setActiveTab('diseases')}
-              className="text-stone-600 hover:text-emerald-700 transition"
+              onClick={() => {
+                if (user) {
+                  setActiveTab('diseases');
+                } else {
+                  handleOpenAuth('register');
+                }
+              }}
+              className="text-stone-600 hover:text-emerald-700 transition cursor-pointer"
             >
               Disease Catalog
             </button>
@@ -428,14 +445,16 @@ export default function App() {
         </div>
       </footer>
 
-      {/* Mobile Bottom Navigation */}
-      <BottomNav
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        currentTab={activeTab}
-        setCurrentTab={setActiveTab}
-        language={language}
-      />
+      {/* Mobile Bottom Navigation (Only for logged-in farmers) */}
+      {user && (
+        <BottomNav
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          currentTab={activeTab}
+          setCurrentTab={setActiveTab}
+          language={language}
+        />
+      )}
 
       {/* Animal Detail & Timeline Modal */}
       {selectedAnimal && (

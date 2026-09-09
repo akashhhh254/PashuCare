@@ -129,30 +129,51 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Desktop Nav Links */}
-          <nav className="hidden lg:flex items-center gap-1 xl:gap-2">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = effectiveTab === item.id;
-              return (
-                <button
-                  key={item.id}
-                  id={`nav-${item.id}`}
-                  onClick={() => handleNavClick(item.id)}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold transition ${
-                    item.highlight
-                      ? 'bg-emerald-700 text-white hover:bg-emerald-800 shadow-sm'
-                      : isActive
-                      ? 'bg-emerald-50 text-emerald-800'
-                      : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100'
-                  }`}
-                >
-                  <Icon className={`w-4 h-4 ${item.highlight ? 'text-white' : isActive ? 'text-emerald-700' : 'text-stone-400'}`} />
-                  <span>{item.label}</span>
-                </button>
-              );
-            })}
-          </nav>
+          {/* Desktop Nav Links (Only shown when user is logged in) */}
+          {user ? (
+            <nav className="hidden lg:flex items-center gap-1 xl:gap-2">
+              {navItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = effectiveTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    id={`nav-${item.id}`}
+                    onClick={() => handleNavClick(item.id)}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold transition ${
+                      item.highlight
+                        ? 'bg-emerald-700 text-white hover:bg-emerald-800 shadow-sm'
+                        : isActive
+                        ? 'bg-emerald-50 text-emerald-800'
+                        : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100'
+                    }`}
+                  >
+                    <Icon className={`w-4 h-4 ${item.highlight ? 'text-white' : isActive ? 'text-emerald-700' : 'text-stone-400'}`} />
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+          ) : (
+            <div className="hidden lg:flex items-center gap-6 text-xs text-stone-600 font-medium">
+              <span className="flex items-center gap-1 text-emerald-800 font-bold bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+                <HeartPulse className="w-3.5 h-3.5 text-emerald-700" />
+                <span>AI Livestock Diagnostic Platform</span>
+              </span>
+              <button
+                onClick={onOpenPrivacy}
+                className="hover:text-emerald-700 transition"
+              >
+                Medical Charter
+              </button>
+              <a
+                href="tel:1962"
+                className="text-red-700 hover:underline font-bold"
+              >
+                Emergency: 1962
+              </a>
+            </div>
+          )}
 
           {/* Action Tools: Language, PWA, User */}
           <div className="flex items-center gap-2 sm:gap-3">
@@ -281,30 +302,68 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Mobile dropdown menu */}
       {mobileMenuOpen && (
-        <div className="lg:hidden border-t border-stone-200 bg-white px-4 pt-3 pb-6 space-y-1 shadow-lg">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = effectiveTab === item.id;
-            return (
+        <div className="lg:hidden border-t border-stone-200 bg-white px-4 pt-3 pb-6 space-y-2 shadow-lg">
+          {user ? (
+            <div className="space-y-1">
+              {navItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = effectiveTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => handleNavClick(item.id)}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-base font-semibold transition ${
+                      item.highlight
+                        ? 'bg-emerald-700 text-white'
+                        : isActive
+                        ? 'bg-emerald-50 text-emerald-800'
+                        : 'text-stone-700 hover:bg-stone-50'
+                    }`}
+                  >
+                    <Icon className="w-5 h-5" />
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="space-y-3 py-2">
+              <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900">
+                <p className="font-bold">
+                  {language === 'hi' 
+                    ? 'पशु स्वास्थ्य जांच के लिए कृपया खाता बनाएं या साइन इन करें।' 
+                    : language === 'mr' 
+                    ? 'आरोग्य तपासणीसाठी कृपया खाते तयार करा किंवा साइन इन करा.' 
+                    : 'Please create an account or sign in to access diagnostic tools.'}
+                </p>
+              </div>
+
               <button
-                key={item.id}
-                onClick={() => handleNavClick(item.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-base font-semibold transition ${
-                  item.highlight
-                    ? 'bg-emerald-700 text-white'
-                    : isActive
-                    ? 'bg-emerald-50 text-emerald-800'
-                    : 'text-stone-700 hover:bg-stone-50'
-                }`}
+                onClick={() => {
+                  onOpenAuth('register');
+                  setMobileMenuOpen(false);
+                }}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-sm shadow-sm transition"
               >
-                <Icon className="w-5 h-5" />
-                <span>{item.label}</span>
+                <User className="w-4 h-4" />
+                <span>{t('authTabRegister')}</span>
               </button>
-            );
-          })}
+
+              <button
+                onClick={() => {
+                  onOpenAuth('signin');
+                  setMobileMenuOpen(false);
+                }}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-stone-300 bg-stone-50 hover:bg-stone-100 text-stone-800 font-bold text-sm transition"
+              >
+                <span>{t('authTabSignIn')}</span>
+              </button>
+            </div>
+          )}
+
           <div className="pt-3 border-t border-stone-100 flex items-center justify-between text-xs text-stone-500">
-            <span>PashuCare AI v2.4</span>
-            <button onClick={onOpenPrivacy} className="underline text-emerald-700">Privacy & Terms</button>
+            <span>Helpline: <strong>1962</strong></span>
+            <button onClick={onOpenPrivacy} className="underline text-emerald-700">Privacy & Charter</button>
           </div>
         </div>
       )}
