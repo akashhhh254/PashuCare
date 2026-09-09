@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { UserProfile, Language } from '../types';
 import { translations, getTranslation } from '../i18n/translations';
+import { signInWithGooglePopup } from '../lib/firebase';
 
 declare global {
   interface Window {
@@ -64,6 +65,7 @@ interface AuthModalProps {
   initialTab?: 'signin' | 'register';
   onClose: () => void;
   onSuccess: (user: UserProfile) => void;
+  onGoogleConsentNeeded?: (fbUser: any) => void;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -72,6 +74,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   initialTab = 'register',
   onClose,
   onSuccess,
+  onGoogleConsentNeeded,
 }) => {
   const t = (key: keyof typeof translations['en']) => getTranslation(language, key);
 
@@ -94,17 +97,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [regFarmName, setRegFarmName] = useState('');
   const [regFarmLocation, setRegFarmLocation] = useState('Maharashtra, India');
 
-  // Google Sign-In helper prompt
-  const [showGoogleEmailPrompt, setShowGoogleEmailPrompt] = useState(false);
-  const [googleManualEmail, setGoogleManualEmail] = useState('');
-
+  // Google Sign-In state
   // Reset state when modal opens
   useEffect(() => {
     if (isOpen) {
       setActiveTab(initialTab);
       setErrorMessage(null);
       setSuccessMessage(null);
-      setShowGoogleEmailPrompt(false);
     }
   }, [isOpen, initialTab]);
 
@@ -188,59 +187,50 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   }, [isOpen]);
 
-  // Initiate single Google Sign-In
-  const initiateGoogleSignIn = async (emailOverride?: string) => {
-    setIsLoading(true);
+  // Initiate real Google Sign-In with official Google account selection popup & consent
+  const initiateGoogleSignIn = async () => {
     setErrorMessage(null);
-
-    const clientId = (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID;
-
-    if (clientId && window.google?.accounts?.id) {
-      try {
-        window.google.accounts.id.prompt((notification: any) => {
-          if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
-            console.log('GIS OneTap prompt not displayed, falling back to direct auth');
-            fallbackGoogleAuth(emailOverride);
-          }
-        });
-        return;
-      } catch (err) {
-        console.warn('GIS prompt error:', err);
-      }
-    }
-
-    // Direct Google authentication
-    await fallbackGoogleAuth(emailOverride);
-  };
-
-  const fallbackGoogleAuth = async (emailOverride?: string) => {
+    setIsLoading(true);
     try {
-      const emailToUse = emailOverride?.trim() || googleManualEmail.trim();
-
-      if (!emailToUse && !emailOverride) {
-        setShowGoogleEmailPrompt(true);
-        setIsLoading(false);
-        return;
-      }
-
-      const res = await fetch('/api/auth/google', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: emailToUse,
-          name: emailToUse.split('@')[0],
-        }),
-      });
-
-      const data = await res.json();
-      if (res.ok && data.success && data.user) {
-        onSuccess(data.user);
+      const fbUser = await signInWithGooglePopup();
+      if (fbUser) {
         onClose();
-      } else {
-        setErrorMessage(data.message || 'Google sign-in failed.');
+        if (onGoogleConsentNeeded) {
+          onGoogleConsentNeeded(fbUser);
+        } else {
+          const userProfile: UserProfile = {
+            id: fbUser.uid,
+            name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Farmer',
+            email: fbUser.email || '',
+            phone: fbUser.phoneNumber || '',
+            role: 'farmer',
+            preferredLanguage: language,
+            farmName: 'My Dairy & Livestock Farm',
+            farmLocation: 'Maharashtra, India',
+            createdAt: new Date().toISOString(),
+          };
+          onSuccess(userProfile);
+        }
       }
     } catch (err: any) {
-      setErrorMessage(err.message || 'Google sign-in error occurred.');
+      console.error('Real Google Sign-In error:', err);
+      if (err.code === 'auth/popup-closed-by-user') {
+        setErrorMessage(
+          language === 'hi'
+            ? 'गूगल लॉगिन विंडो बंद कर दी गई थी। कृपया पुनः प्रयास करें।'
+            : language === 'mr'
+            ? 'गुगल लॉगिन विंडो बंद केली होती. कृपया पुन्हा प्रयत्न करा.'
+            : 'Google sign-in popup was closed before completing.'
+        );
+      } else if (err.code === 'auth/popup-blocked') {
+        setErrorMessage(
+          language === 'hi'
+            ? 'ब्राउज़र ने गूगल पॉपअप ब्लॉक कर दिया है। कृपया एड्रेस बार में पॉपअप को अनुमति दें।'
+            : 'Popup blocked by browser. Please allow popups or open in a new tab.'
+        );
+      } else {
+        setErrorMessage(err.message || 'Google sign-in error occurred.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -431,38 +421,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               )}
               <span>{t('authGoogle')}</span>
             </button>
-
-            {/* If Google Email Input Prompt is triggered */}
-            {showGoogleEmailPrompt && (
-              <div className="p-3 rounded-xl bg-stone-50 border border-stone-200 space-y-2 text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-stone-700">Enter your Google Email:</span>
-                  <button
-                    type="button"
-                    onClick={() => setShowGoogleEmailPrompt(false)}
-                    className="text-stone-400 hover:text-stone-600"
-                  >
-                    Cancel
-                  </button>
-                </div>
-                <div className="flex gap-2">
-                  <input
-                    type="email"
-                    placeholder="your.email@gmail.com"
-                    value={googleManualEmail}
-                    onChange={(e) => setGoogleManualEmail(e.target.value)}
-                    className="flex-1 px-3 py-2 text-xs rounded-lg border border-stone-300 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => initiateGoogleSignIn(googleManualEmail)}
-                    className="px-3 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs"
-                  >
-                    Connect
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Divider */}

@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { SupportedAnimalType, Language, AnimalProfile, HealthReport } from '../types';
 import { translations, getTranslation } from '../i18n/translations';
+import { CameraAlignmentOverlay } from './CameraAlignmentOverlay';
 
 interface HealthCheckFormProps {
   language: Language;
@@ -47,6 +48,7 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
   const [isCameraActive, setIsCameraActive] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
 
   // Symptoms State
@@ -209,30 +211,56 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
     }
   };
 
-  // Start Camera Stream
+  // Start Camera Stream with resilient fallbacks for mobile & desktop
   const startCamera = async () => {
     setImageError(null);
     try {
       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
-        });
-        mediaStreamRef.current = stream;
-        setIsCameraActive(true);
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play();
+        let stream: MediaStream | null = null;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: 'environment' } },
+          });
+        } catch (initialErr) {
+          console.warn('FacingMode environment failed, trying standard video:', initialErr);
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+          });
         }
-      } else {
-        setImageError('Camera access is not supported on this device/browser.');
+
+        if (stream) {
+          mediaStreamRef.current = stream;
+          setIsCameraActive(true);
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+            videoRef.current.play().catch((playErr) => console.warn('Video play err:', playErr));
+          }
+          return;
+        }
       }
+
+      // If getUserMedia is blocked or unsupported, open native mobile camera
+      cameraInputRef.current?.click();
     } catch (err: any) {
-      console.warn('Camera error:', err);
-      setImageError(
-        'Unable to access device camera. Please check camera permissions or upload an image file instead.'
-      );
+      console.warn('Camera stream error, falling back to native capture:', err);
+      if (cameraInputRef.current) {
+        cameraInputRef.current.click();
+      } else {
+        setImageError(
+          language === 'hi'
+            ? 'कैमरा शुरू नहीं हो सका। कृपया फोटो अपलोड करें या सीधे फाइल चुनें।'
+            : 'Unable to access device camera. Please upload an image file instead.'
+        );
+      }
       setIsCameraActive(false);
     }
+  };
+
+  // Direct native mobile phone camera shutter
+  const openNativeCamera = () => {
+    setImageError(null);
+    stopCamera();
+    cameraInputRef.current?.click();
   };
 
   // Stop Camera Stream
@@ -605,29 +633,67 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
                     </div>
                   </div>
                 ) : isCameraActive ? (
-                  <div className="relative rounded-2xl overflow-hidden border border-stone-200 bg-black max-w-md mx-auto">
+                  <div className="relative rounded-2xl overflow-hidden border border-stone-800 bg-black max-w-md mx-auto aspect-[3/4] sm:aspect-[4/5] max-h-[520px] shadow-2xl">
                     <video
                       ref={videoRef}
                       autoPlay
                       playsInline
                       muted
-                      className="w-full h-64 object-cover"
+                      className="w-full h-full object-cover"
                     />
-                    <div className="absolute inset-x-0 bottom-3 flex items-center justify-center gap-4">
+                    <CameraAlignmentOverlay
+                      language={language}
+                      onCapture={capturePhoto}
+                      onCancel={stopCamera}
+                    />
+                  </div>
+                ) : inputMethod === 'camera' ? (
+                  <div className="border-2 border-dashed border-emerald-300 rounded-2xl p-6 sm:p-8 text-center bg-emerald-50/40 space-y-4">
+                    <input
+                      ref={cameraInputRef}
+                      type="file"
+                      id="animal-camera-native-input"
+                      accept="image/*"
+                      capture="environment"
+                      className="hidden"
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files[0]) {
+                          processImageFile(e.target.files[0]);
+                        }
+                      }}
+                    />
+                    <div className="w-14 h-14 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center mx-auto shadow-xs">
+                      <Camera className="w-7 h-7" />
+                    </div>
+                    <div className="max-w-sm mx-auto">
+                      <h3 className="text-sm sm:text-base font-extrabold text-stone-900">
+                        {language === 'hi' ? 'पशु का फोटो खींचें' : language === 'mr' ? 'जनावराचा फोटो काढा' : 'Capture Animal Photo'}
+                      </h3>
+                      <p className="text-xs text-stone-600 mt-1">
+                        {language === 'hi' 
+                          ? 'प्रभावित अंग (घाव, मुंह, खुर, आंख या त्वचा) का स्पष्ट और साफ फोटो लें।'
+                          : 'Ensure good lighting on the affected area (mouth, hooves, skin lesions).'}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
                       <button
                         type="button"
-                        id="shutter-capture-btn"
-                        onClick={capturePhoto}
-                        className="w-14 h-14 rounded-full bg-white border-4 border-emerald-600 shadow-xl flex items-center justify-center active:scale-90 transition"
+                        id="btn-open-live-camera"
+                        onClick={startCamera}
+                        className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs sm:text-sm shadow-xs transition"
                       >
-                        <div className="w-8 h-8 rounded-full bg-emerald-700" />
+                        <Camera className="w-4 h-4" />
+                        <span>{language === 'hi' ? 'लाइव कैमरा चालू करें' : 'Open Live Camera'}</span>
                       </button>
+
                       <button
                         type="button"
-                        onClick={stopCamera}
-                        className="px-3 py-1.5 rounded-lg bg-black/60 text-white text-xs backdrop-blur-xs"
+                        id="btn-open-mobile-shutter"
+                        onClick={openNativeCamera}
+                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-emerald-300 hover:bg-emerald-50 text-emerald-900 font-bold text-xs sm:text-sm shadow-2xs transition"
                       >
-                        Cancel
+                        <span>{language === 'hi' ? 'फ़ोन कैमरा खोलें' : 'Phone Camera App'}</span>
                       </button>
                     </div>
                   </div>
@@ -643,6 +709,19 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
                       type="file"
                       id="animal-image-file-input"
                       accept="image/jpeg,image/png,image/webp"
+                      className="hidden"
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files[0]) {
+                          processImageFile(e.target.files[0]);
+                        }
+                      }}
+                    />
+                    <input
+                      ref={cameraInputRef}
+                      type="file"
+                      id="animal-camera-native-fallback"
+                      accept="image/*"
+                      capture="environment"
                       className="hidden"
                       onChange={(e) => {
                         if (e.target.files && e.target.files[0]) {

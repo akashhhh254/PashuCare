@@ -1,0 +1,103 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile information for farmers",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "village": { "type": "string" },
+        "district": { "type": "string" },
+        "state": { "type": "string" },
+        "language": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["uid", "name"]
+    },
+    "Animal": {
+      "title": "Animal",
+      "description": "Livestock profile owned by a farmer",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "tagNumber": { "type": "string" },
+        "name": { "type": "string" },
+        "species": { "type": "string" },
+        "breed": { "type": "string" },
+        "age": { "type": "string" },
+        "gender": { "type": "string" },
+        "healthStatus": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "species"]
+    },
+    "HealthReport": {
+      "title": "HealthReport",
+      "description": "Veterinary AI triage health check report",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "animalSpecies": { "type": "string" },
+        "diagnosis": { "type": "string" },
+        "urgency": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id", "userId", "diagnosis"]
+    },
+    "Reminder": {
+      "title": "Reminder",
+      "description": "Vaccination or health reminder",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "dueDate": { "type": "string" },
+        "completed": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "title"]
+    },
+    "VetRequest": {
+      "title": "VetRequest",
+      "description": "SOS emergency or vet consultation request",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "farmerName": { "type": "string" },
+        "farmerPhone": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "farmerName", "farmerPhone"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Farmer profile"
+    },
+    "/animals/{animalId}": {
+      "schema": "Animal",
+      "description": "Livestock animal records"
+    },
+    "/reports/{reportId}": {
+      "schema": "HealthReport",
+      "description": "AI veterinary health check reports"
+    },
+    "/reminders/{reminderId}": {
+      "schema": "Reminder",
+      "description": "Vaccination and deworming reminders"
+    },
+    "/vetRequests/{requestId}": {
+      "schema": "VetRequest",
+      "description": "Requests sent to field veterinarians"
+    }
+  }
+}

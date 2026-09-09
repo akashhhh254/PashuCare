@@ -12,7 +12,11 @@ import {
   Sparkles,
   Info,
   Check,
-  Copy
+  Copy,
+  Volume2,
+  VolumeX,
+  Pill,
+  Stethoscope
 } from 'lucide-react';
 import { HealthReport, Language } from '../types';
 import { translations, getTranslation } from '../i18n/translations';
@@ -33,10 +37,52 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
 }) => {
   const t = (key: keyof typeof translations['en']) => getTranslation(language, key);
   const [shareNotice, setShareNotice] = useState<string | null>(null);
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
 
   const { result } = report;
   const isEmergency = result?.emergency || result?.riskLevel === 'Emergency' || result?.riskLevel === 'High';
   const healthScore = result?.healthScore || 70;
+
+  // Speech synthesis audio narration
+  const toggleAudioNarration = () => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+
+    if (isPlayingAudio) {
+      window.speechSynthesis.cancel();
+      setIsPlayingAudio(false);
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+
+    const parts: string[] = [
+      `पशु केयर एआई स्वास्थ्य रिपोर्ट.`,
+      `पशु का नाम: ${report.animalName || 'पशु'}. श्रेणी: ${report.animalType}.`,
+      `स्वास्थ्य स्कोर: ${healthScore} में से 100. जोखिम स्तर: ${result?.riskLevel || 'सामान्य'}.`,
+    ];
+
+    if (result?.possibleConditions?.length) {
+      parts.push(`संभावित बीमारी: ${result.possibleConditions.map((c) => `${c.name}, विश्वास ${c.confidence}%`).join(', ')}.`);
+    }
+
+    if (result?.medicinesAndTreatment) {
+      parts.push(`प्राथमिक उपचार: ${result.medicinesAndTreatment.firstAidMedications.join('. ')}`);
+      parts.push(`पशु चिकित्सक द्वारा दी जाने वाली दवाएं: ${result.medicinesAndTreatment.veterinaryDrugs.join('. ')}`);
+      parts.push(`सावधानी: ${result.medicinesAndTreatment.safetyPrecautions}`);
+    } else if (result?.generalRecommendations?.length) {
+      parts.push(`सिफारिशें: ${result.generalRecommendations.join('. ')}`);
+    }
+
+    const utterance = new SpeechSynthesisUtterance(parts.join(' '));
+    utterance.lang = language === 'mr' ? 'mr-IN' : language === 'hi' ? 'hi-IN' : 'en-US';
+    utterance.rate = 0.95;
+
+    utterance.onend = () => setIsPlayingAudio(false);
+    utterance.onerror = () => setIsPlayingAudio(false);
+
+    setIsPlayingAudio(true);
+    window.speechSynthesis.speak(utterance);
+  };
 
   // Share handler
   const handleShare = async () => {
@@ -86,7 +132,31 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
           <span>{t('btnNewCheck')}</span>
         </button>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Voice Speech Narration Button */}
+          <button
+            onClick={toggleAudioNarration}
+            id="report-audio-listen-btn"
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-2xs ${
+              isPlayingAudio
+                ? 'bg-amber-500 text-white animate-pulse'
+                : 'bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100'
+            }`}
+            title="AI स्वास्थ्य रिपोर्ट सुनें / Listen to AI Report"
+          >
+            {isPlayingAudio ? (
+              <>
+                <VolumeX className="w-3.5 h-3.5" />
+                <span>{language === 'hi' ? 'रोकें (Stop)' : 'Stop Audio'}</span>
+              </>
+            ) : (
+              <>
+                <Volume2 className="w-3.5 h-3.5 text-emerald-700" />
+                <span>{language === 'hi' ? 'रिपोर्ट सुनें (Listen)' : 'Listen Report'}</span>
+              </>
+            )}
+          </button>
+
           <button
             onClick={handleShare}
             id="report-share-btn"
@@ -392,6 +462,81 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
                 <p className="text-xs text-stone-500">Provide clean water and soft roughage.</p>
               )}
             </div>
+          </div>
+
+          {/* MEDICINES & TREATMENT SECTION (दवाइयां और उपचार) */}
+          <div className="p-5 rounded-2xl bg-amber-50/60 border border-amber-200/80 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200 pb-3">
+              <h3 className="text-base font-bold text-amber-950 flex items-center gap-2">
+                <Pill className="w-5 h-5 text-amber-700" />
+                <span>
+                  {language === 'hi'
+                    ? 'अनुशंसित दवाइयां और उपचार (Medicines & Veterinary Guidance)'
+                    : language === 'mr'
+                    ? 'औषधे आणि पशुवैद्यकीय उपचार (Medicines & Treatment)'
+                    : 'Recommended Medications & Veterinary Treatment Guidance'}
+                </span>
+              </h3>
+              <span className="text-[11px] font-bold text-amber-800 bg-amber-100 px-2.5 py-0.5 rounded-full">
+                Veterinary Advisory
+              </span>
+            </div>
+
+            {result?.medicinesAndTreatment ? (
+              <div className="space-y-4 text-xs sm:text-sm">
+                {/* First Aid Medications */}
+                <div>
+                  <h4 className="font-bold text-amber-950 mb-1.5 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-600" />
+                    <span>
+                      {language === 'hi'
+                        ? 'प्राथमिक उपचार व सुरक्षित दवाएं (First-Aid / Immediate Care):'
+                        : 'First-Aid & Immediate Safe Supplies:'}
+                    </span>
+                  </h4>
+                  <ul className="list-disc list-inside space-y-1 text-stone-700 pl-1">
+                    {result.medicinesAndTreatment.firstAidMedications.map((med, idx) => (
+                      <li key={idx}>{med}</li>
+                    ))}
+                  </ul>
+                </div>
+
+                {/* Veterinary Prescription Drugs */}
+                <div>
+                  <h4 className="font-bold text-amber-950 mb-1.5 flex items-center gap-1.5">
+                    <Stethoscope className="w-4 h-4 text-blue-700" />
+                    <span>
+                      {language === 'hi'
+                        ? 'पशु चिकित्सक द्वारा दी जाने वाली मुख्य दवाएं (Veterinary Prescription):'
+                        : 'Standard Veterinary Prescription Drugs:'}
+                    </span>
+                  </h4>
+                  <ul className="list-disc list-inside space-y-1 text-stone-700 pl-1">
+                    {result.medicinesAndTreatment.veterinaryDrugs.map((med, idx) => (
+                      <li key={idx}>{med}</li>
+                    ))}
+                  </ul>
+                </div>
+
+                {/* Safety Precaution Box */}
+                <div className="p-3 rounded-xl bg-amber-100/70 border border-amber-300 text-amber-900 text-xs">
+                  <strong>{language === 'hi' ? 'महत्वपूर्ण सुरक्षा निर्देश: ' : 'Safety Notice: '}</strong>
+                  <span>{result.medicinesAndTreatment.safetyPrecautions}</span>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3 text-xs sm:text-sm text-stone-700">
+                <p>
+                  {language === 'hi'
+                    ? 'पशु चिकित्सक के परामर्श अनुसार प्राथमिक एंटीसेप्टिक ड्रेसिंग, दर्द निवारक (मेलोक्सिकैम) तथा आवश्यकतानुसार एंटीबायोटिक का प्रयोग करें।'
+                    : 'Administer antiseptic wound dressing, pain reliever (Meloxicam), and doctor-prescribed antibiotics as advised.'}
+                </p>
+                <div className="p-3 rounded-xl bg-amber-100/60 border border-amber-200 text-amber-900 text-xs">
+                  <strong>{language === 'hi' ? 'दवा निर्देश: ' : 'Notice: '}</strong>
+                  <span>एंटीबायोटिक या इंजेक्शन हमेशा रजिस्टर्ड पशु चिकित्सक की देखरेख में ही लगवाएं।</span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Prevention & Biosecurity Tips */}

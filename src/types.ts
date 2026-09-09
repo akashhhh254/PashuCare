@@ -17,6 +17,21 @@ export interface ImageQualityCheck {
   reason: string;
 }
 
+export interface MedicationItem {
+  category: string;
+  name: string;
+  purpose: string;
+  dosageGuidance: string;
+  caution?: string;
+}
+
+export interface DiseaseMedications {
+  firstAidMedications: string[];
+  veterinaryDrugs: string[];
+  supportiveCare: string[];
+  safetyPrecautions: string;
+}
+
 export interface AIHealthAnalysisResult {
   animalDetected: boolean;
   detectedAnimalType?: string;
@@ -29,6 +44,7 @@ export interface AIHealthAnalysisResult {
   possibleCauses: string[];
   generalRecommendations: string[];
   preventionTips: string[];
+  medicinesAndTreatment?: DiseaseMedications;
   veterinarianRecommended: boolean;
   emergency: boolean;
   healthScore: number;
@@ -124,6 +140,7 @@ export interface DiseaseInfo {
   generalCare: string[];
   whenToSeekVet: string;
   severity: RiskLevel;
+  medicinesAndTreatment?: DiseaseMedications;
 }
 
 export interface UserProfile {

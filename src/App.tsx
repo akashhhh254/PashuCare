@@ -15,6 +15,7 @@ import { DiseaseLibraryView } from './components/DiseaseLibraryView';
 import { AdminView } from './components/AdminView';
 import { LandingView } from './components/LandingView';
 import { AuthModal } from './components/AuthModal';
+import { GoogleConsentModal } from './components/GoogleConsentModal';
 import { PrivacyModal } from './components/PrivacyModal';
 import { ProfileView } from './components/ProfileView';
 import { Footer } from './components/Footer';
@@ -27,6 +28,8 @@ import {
   VeterinarianRequest
 } from './types';
 import { translations, getTranslation } from './i18n/translations';
+import { auth, signInWithGooglePopup, logOutFromFirebase } from './lib/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 
 export default function App() {
   // Navigation & View State
@@ -35,17 +38,21 @@ export default function App() {
     return (localStorage.getItem('pashucare_lang') as Language) || 'en';
   });
 
-  // User Authentication State (defaults to null until real user registers/signs in)
+  // User Authentication State (defaults to null until user explicitly consents & authenticates)
   const [user, setUser] = useState<UserProfile | null>(() => {
     try {
+      const consentGiven = localStorage.getItem('pashucare_consent_given');
       const saved = localStorage.getItem('pashucare_user');
-      if (saved) {
+      if (saved && consentGiven === 'true') {
         const parsed = JSON.parse(saved);
         if (parsed && parsed.name !== 'Ramesh Patil' && parsed.id !== 'farmer-1') {
-          return parsed;
+          const userConsent = localStorage.getItem(`pashucare_consent_${parsed.id}`);
+          if (userConsent === 'true') {
+            return parsed;
+          }
         }
-        localStorage.removeItem('pashucare_user');
       }
+      localStorage.removeItem('pashucare_user');
     } catch {
       localStorage.removeItem('pashucare_user');
     }
@@ -67,6 +74,8 @@ export default function App() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authInitialTab, setAuthInitialTab] = useState<'signin' | 'register'>('register');
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+  const [pendingGoogleUser, setPendingGoogleUser] = useState<any | null>(null);
+  const [showGoogleConsentModal, setShowGoogleConsentModal] = useState(false);
 
   const handleOpenAuth = (tab: 'signin' | 'register' = 'register') => {
     setAuthInitialTab(tab);
@@ -118,6 +127,38 @@ export default function App() {
     refreshData();
   }, []);
 
+  // Listen to official Firebase Auth state changes
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      if (firebaseUser) {
+        const hasConsented =
+          localStorage.getItem('pashucare_consent_given') === 'true' &&
+          localStorage.getItem(`pashucare_consent_${firebaseUser.uid}`) === 'true';
+
+        if (!hasConsented) {
+          // Explicitly hold Firebase user in pending state and show Data Sharing & Account Access modal FIRST
+          setPendingGoogleUser(firebaseUser);
+          setShowGoogleConsentModal(true);
+        } else {
+          const userProfile: UserProfile = {
+            id: firebaseUser.uid,
+            name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Farmer',
+            email: firebaseUser.email || '',
+            phone: firebaseUser.phoneNumber || '',
+            role: 'farmer',
+            preferredLanguage: language,
+            farmName: 'My Dairy & Livestock Farm',
+            farmLocation: 'Maharashtra, India',
+            createdAt: new Date().toISOString(),
+          };
+          setUser(userProfile);
+          localStorage.setItem('pashucare_user', JSON.stringify(userProfile));
+        }
+      }
+    });
+    return () => unsubscribe();
+  }, [language]);
+
   // Save User profile change
   const handleUserLogin = (loggedInUser: UserProfile) => {
     setUser(loggedInUser);
@@ -125,9 +166,17 @@ export default function App() {
   };
 
   // Handle user sign out
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
+    try {
+      await logOutFromFirebase();
+    } catch (e) {
+      console.warn('Firebase signout error:', e);
+    }
     setUser(null);
+    setPendingGoogleUser(null);
+    setShowGoogleConsentModal(false);
     localStorage.removeItem('pashucare_user');
+    localStorage.removeItem('pashucare_consent_given');
   };
 
   // Handle Adding Animal
@@ -259,13 +308,17 @@ export default function App() {
         onOpenPrivacy={() => setShowPrivacyModal(true)}
       />
 
-      {/* Main Content Area */}
-      <main className={`flex-1 ${user ? 'pb-20 sm:pb-8' : 'pb-8'}`}>
+      {/* Main Content Area with Mobile Bottom Nav Clearance */}
+      <main className={`flex-1 ${user ? 'pb-24 lg:pb-10' : 'pb-10'}`}>
         {!user ? (
           <LandingView
             language={language}
             onOpenAuth={handleOpenAuth}
             onOpenPrivacy={() => setShowPrivacyModal(true)}
+            onGoogleSignIn={() => {
+              // Open Data Sharing & Account Access consent screen FIRST as required
+              setShowGoogleConsentModal(true);
+            }}
           />
         ) : (
           <>
@@ -454,6 +507,59 @@ export default function App() {
         language={language}
         onClose={() => setShowAuthModal(false)}
         onSuccess={handleUserLogin}
+        onGoogleConsentNeeded={(fbUser) => {
+          setPendingGoogleUser(fbUser);
+          setShowGoogleConsentModal(true);
+        }}
+      />
+
+      {/* Data Sharing & Account Access Consent Modal with Sticky Agree and Continue */}
+      <GoogleConsentModal
+        isOpen={showGoogleConsentModal}
+        googleUser={pendingGoogleUser}
+        language={language}
+        onAgreeAndContinue={async (existingProfile) => {
+          let activeUser = pendingGoogleUser;
+          let profileToUse = existingProfile;
+
+          // If user opened consent modal directly from landing screen, launch Google OAuth now:
+          if (!activeUser) {
+            const fbUser = await signInWithGooglePopup();
+            if (!fbUser) return;
+            activeUser = fbUser;
+            profileToUse = {
+              id: fbUser.uid,
+              name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Farmer / पशुपालक',
+              email: fbUser.email || '',
+              phone: fbUser.phoneNumber || '',
+              role: 'farmer',
+              preferredLanguage: language,
+              farmName: 'My Dairy & Livestock Farm',
+              farmLocation: 'Maharashtra, India',
+              createdAt: new Date().toISOString(),
+              photoUrl: fbUser.photoURL || undefined,
+            };
+          }
+
+          // Explicitly save consent to ensure no bypass
+          if (activeUser?.uid) {
+            localStorage.setItem('pashucare_consent_given', 'true');
+            localStorage.setItem(`pashucare_consent_${activeUser.uid}`, 'true');
+          }
+
+          if (profileToUse) {
+            handleUserLogin(profileToUse);
+          }
+
+          setShowGoogleConsentModal(false);
+          setPendingGoogleUser(null);
+        }}
+        onCancelOrSwitchAccount={async () => {
+          await logOutFromFirebase().catch(() => {});
+          setShowGoogleConsentModal(false);
+          setPendingGoogleUser(null);
+        }}
+        onOpenPrivacy={() => setShowPrivacyModal(true)}
       />
 
       {/* Privacy & Medical Charter Modal */}

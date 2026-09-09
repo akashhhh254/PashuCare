@@ -270,7 +270,10 @@ Your primary goal is to help farmers detect early signs of common livestock illn
 CRITICAL SAFETY & MEDICAL INSTRUCTIONS:
 1. NEVER claim a 100% confirmed diagnosis. Always use cautious terms: "Possible condition", "Preliminary assessment", "AI confidence".
 2. If symptoms suggest acute, rapidly fatal or dangerous diseases (e.g. severe bloat with distended flank, throat swelling / HS, high acute fever with sudden lameness / BQ, acute respiratory distress, heavy bleeding), mark "emergency": true and "riskLevel": "Emergency" or "High".
-3. NEVER prescribe specific prescription antibiotic dosages or unsafe self-treatments. Only provide safe supportive care (isolation, clean lukewarm water, soft feed, antiseptic wound wash with mild potassium permanganate or neem, cold compresses for acute swelling) and urge professional veterinary examination.
+3. PROVIDE PRACTICAL MEDICINES & TREATMENT GUIDELINES:
+   - First-aid & immediate supplies: Provide safe first-aid remedies (e.g. Potassium Permanganate 1:1000 / Alum mouth wash for blisters, Boro-glycerine, Himax / Topicure wound sprays, ORS electrolytes for dehydration, Bloatosil / sweet mustard oil for bloat, cold compresses for mastitis).
+   - Standard Veterinary medications: List standard veterinary drugs normally prescribed or administered by the doctor for these conditions (e.g., antipyretics/painkillers like Meloxicam/Paracetamol, antihistaminics like Avil/Pheniramine, prescription antibiotic classes like Enrofloxacin/Ceftriaxone, intramammary infusions for mastitis, Calcium Borogluconate 25% for milk fever) so the farmer understands what treatment is needed.
+   - Always include a clear safety note that prescription antibiotics and injections must be administered under veterinary guidance.
 4. If an image is provided:
    - Check if the image contains an animal (specifically cow, buffalo, goat, sheep, or livestock).
    - If the image is a human, object, car, scenery, or unrelated animal (e.g., cat, bird, snake), set "animalDetected": false and explain in simple friendly language that only supported livestock (Cow, Buffalo, Goat, Sheep) can be analyzed.
@@ -278,7 +281,7 @@ CRITICAL SAFETY & MEDICAL INSTRUCTIONS:
 5. Combine image observations with user-provided symptoms, temperature, and behavior.
 6. Calculate an informational "healthScore" between 10 and 100 (100 = completely healthy, <50 = serious illness/emergency, 50-75 = needs attention/mild-moderate issue).
 7. Respond ONLY in structured JSON adhering to the exact schema specified.
-8. Translate all descriptive strings (reasons, causes, recommendations, prevention) into the requested language: "${language}" (en = English, hi = Hindi, mr = Marathi). Always keep the disease name recognizable (e.g. bilingual like "Foot and Mouth Disease (खुरपका-मुंहपका)" or "लम्पी त्वचा रोग (LSD)").`;
+8. Translate all descriptive strings (reasons, causes, recommendations, prevention, medicines) into the requested language: "${language}" (en = English, hi = Hindi, mr = Marathi). Always keep the disease and medicine names recognizable (e.g. bilingual like "खुरपका-मुंहपका (FMD)" or "मेलोक्सिकैम (Melonex)").`;
 
     const userPromptText = `ANIMAL TO ANALYZE:
 - Selected Animal Category: ${animalType || 'Not specified'}
@@ -310,6 +313,11 @@ Analyze the photo and reported signs. Return a valid JSON object matching this s
   "possibleCauses": ["Possible environmental, bacterial, viral, or nutritional factors without asserting certainty"],
   "generalRecommendations": ["Safe supportive care actions for the farmer"],
   "preventionTips": ["Herd biosecurity and vaccination guidance"],
+  "medicinesAndTreatment": {
+    "firstAidMedications": ["List of safe immediate first aid medicines and supplies in ${language}"],
+    "veterinaryDrugs": ["List of standard veterinary medicines to discuss with veterinarian in ${language}"],
+    "safetyPrecautions": "Clear guidance on veterinary prescription and milk/meat withdrawal"
+  },
   "veterinarianRecommended": true,
   "emergency": false,
   "healthScore": 75,
