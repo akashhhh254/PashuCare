@@ -154,16 +154,16 @@ export const AnimalSelector: React.FC<AnimalSelectorProps> = ({
             {language === 'hi' ? 'सूची से चुनें' : 'Choose from catalog'}
           </button>
         ) : (
-          <span className="text-xs text-emerald-700 font-medium hidden sm:inline-flex items-center gap-1">
-            <Check className="w-3.5 h-3.5" />
-            <span>{language === 'hi' ? 'एआई विश्लेषण के लिए तैयार' : 'Ready for analysis'}</span>
+          <span className="text-xs text-emerald-800 font-medium hidden sm:inline-flex items-center gap-1">
+            <Check className="w-3.5 h-3.5 text-emerald-700" />
+            <span>{language === 'hi' ? 'जांच के लिए तैयार' : 'Ready for assessment'}</span>
           </span>
         )}
       </div>
 
       {/* Custom Animal Name Input (if user selects Custom/Other) */}
       {isCustomMode && (
-        <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 space-y-2 animate-fadeIn">
+        <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 space-y-2">
           <label className="block text-xs font-bold text-amber-950 flex items-center gap-1.5">
             <Edit3 className="w-3.5 h-3.5 text-amber-700" />
             <span>
@@ -187,8 +187,8 @@ export const AnimalSelector: React.FC<AnimalSelectorProps> = ({
           </div>
           <p className="text-[11px] text-amber-800">
             {language === 'hi'
-              ? 'एआई इस प्रजाति के अनुसार विशिष्ट स्वास्थ्य और नैदानिक दिशा-निर्देश लागू करेगा।'
-              : 'PashuCare AI will adapt differential diagnostics and veterinary safety rules for this specific species.'}
+              ? 'इस प्रजाति के अनुसार उपयुक्त स्वास्थ्य दिशा-निर्देश लागू होंगे।'
+              : 'Clinical assessment guidelines will be adjusted for this species.'}
           </p>
         </div>
       )}
@@ -222,12 +222,11 @@ export const AnimalSelector: React.FC<AnimalSelectorProps> = ({
         )}
       </div>
 
-      {/* Quick Access: Popular Animals Bar */}
+      {/* Quick Access: Common Livestock */}
       {!searchQuery && (
         <div>
-          <span className="text-[11px] font-bold text-stone-500 uppercase tracking-wider block mb-2 flex items-center gap-1.5">
-            <Sparkles className="w-3 h-3 text-amber-500" />
-            <span>{language === 'hi' ? 'लोकप्रिय पशु (त्वरित चयन)' : 'Popular Animals (Quick 1-Tap)'}</span>
+          <span className="text-[11px] font-bold text-stone-600 uppercase tracking-wider block mb-2">
+            {language === 'hi' ? 'सामान्य पशु (त्वरित चयन)' : 'Common Livestock'}
           </span>
           <div className="flex flex-wrap gap-2">
             {POPULAR_SPECIES.map((species) => {

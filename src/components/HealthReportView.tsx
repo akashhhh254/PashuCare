@@ -164,22 +164,22 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
           <button
             onClick={toggleAudioNarration}
             id="report-audio-listen-btn"
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-2xs ${
+            className={`min-h-[38px] flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition ${
               isPlayingAudio
-                ? 'bg-amber-500 text-white animate-pulse'
-                : 'bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100'
+                ? 'bg-amber-600 text-white'
+                : 'bg-emerald-50 text-emerald-900 border border-emerald-300 hover:bg-emerald-100'
             }`}
-            title="AI स्वास्थ्य रिपोर्ट सुनें / Listen to AI Report"
+            title="Listen to Report Audio"
           >
             {isPlayingAudio ? (
               <>
                 <VolumeX className="w-3.5 h-3.5" />
-                <span>{language === 'hi' ? 'रोकें (Stop)' : 'Stop Audio'}</span>
+                <span>{language === 'hi' ? 'रोकें' : 'Stop Audio'}</span>
               </>
             ) : (
               <>
-                <Volume2 className="w-3.5 h-3.5 text-emerald-700" />
-                <span>{language === 'hi' ? 'रिपोर्ट सुनें (Listen)' : 'Listen Report'}</span>
+                <Volume2 className="w-3.5 h-3.5 text-emerald-800" />
+                <span>{language === 'hi' ? 'रिपोर्ट सुनें' : 'Listen Report'}</span>
               </>
             )}
           </button>

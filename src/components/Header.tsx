@@ -109,23 +109,20 @@ export const Header: React.FC<HeaderProps> = ({
           <div
             id="brand-logo-btn"
             onClick={() => handleNavClick('home')}
-            className="flex items-center gap-3 cursor-pointer group"
+            className="flex items-center gap-3 cursor-pointer select-none"
           >
-            <div className="w-10 h-10 rounded-xl bg-emerald-800 flex items-center justify-center text-white shadow-sm">
-              <HeartPulse className="w-5 h-5 text-emerald-100" />
+            <div className="w-9 h-9 rounded-lg bg-emerald-800 flex items-center justify-center text-white shrink-0">
+              <HeartPulse className="w-5 h-5 text-emerald-50" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-bold text-lg sm:text-xl text-stone-900 tracking-tight">
-                  PashuCare <span className="text-emerald-800">AI</span>
+                <span className="font-bold text-lg text-stone-900 tracking-tight">
+                  PashuCare
                 </span>
-                <span className="hidden md:inline-flex px-2 py-0.5 rounded text-[10px] font-semibold bg-stone-100 text-stone-700 border border-stone-200">
+                <span className="hidden sm:inline-block text-[11px] font-medium text-stone-500 border-l border-stone-300 pl-2">
                   Livestock Health
                 </span>
               </div>
-              <p className="text-[11px] text-stone-500 hidden sm:block">
-                {t('appTagline')}
-              </p>
             </div>
           </div>
 
@@ -167,7 +164,7 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <Bell className="w-4 h-4 text-stone-700" />
               {unreadNotificationsCount > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] rounded-full bg-red-600 text-white text-[10px] font-black flex items-center justify-center px-1 shadow-xs animate-pulse">
+                <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] rounded-full bg-red-600 text-white text-[10px] font-bold flex items-center justify-center px-1">
                   {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
                 </span>
               )}

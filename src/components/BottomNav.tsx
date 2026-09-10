@@ -53,12 +53,12 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                 key={tab.id}
                 id={`bottom-nav-${tab.id}`}
                 onClick={() => handleTabClick(tab.id)}
-                className="flex flex-col items-center -mt-5 group"
+                className="flex flex-col items-center -mt-5 cursor-pointer select-none"
               >
-                <div className="w-12 h-12 rounded-full bg-emerald-700 text-white flex items-center justify-center shadow-lg group-active:scale-95 transition border-2 border-white">
-                  <Icon className="w-6 h-6 animate-pulse" />
+                <div className="w-12 h-12 rounded-full bg-emerald-800 text-white flex items-center justify-center shadow-md active:bg-emerald-900 transition border-2 border-white">
+                  <Icon className="w-6 h-6 text-white" />
                 </div>
-                <span className="text-[10px] font-bold text-emerald-800 mt-1">
+                <span className="text-[10px] font-bold text-emerald-900 mt-1">
                   {tab.label}
                 </span>
               </button>
@@ -70,11 +70,11 @@ export const BottomNav: React.FC<BottomNavProps> = ({
               key={tab.id}
               id={`bottom-nav-${tab.id}`}
               onClick={() => handleTabClick(tab.id)}
-              className={`flex flex-col items-center py-1.5 px-3 rounded-lg transition ${
-                isActive ? 'text-emerald-700 font-bold' : 'text-stone-500 hover:text-stone-900'
+              className={`min-h-[44px] flex flex-col items-center justify-center py-1 px-3 rounded-lg transition cursor-pointer select-none ${
+                isActive ? 'text-emerald-900 font-bold' : 'text-stone-600 hover:text-stone-900'
               }`}
             >
-              <Icon className={`w-5 h-5 ${isActive ? 'text-emerald-700' : 'text-stone-500'}`} />
+              <Icon className={`w-5 h-5 ${isActive ? 'text-emerald-800' : 'text-stone-500'}`} />
               <span className="text-[10px] tracking-tight mt-0.5">{tab.label}</span>
             </button>
           );

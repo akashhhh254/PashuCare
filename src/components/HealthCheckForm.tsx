@@ -946,13 +946,13 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
                       type="button"
                       id={`symptom-chip-${sym.id}`}
                       onClick={() => toggleSymptom(label)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition flex items-center gap-1.5 ${
+                      className={`min-h-[40px] px-3.5 py-2 rounded-lg text-xs font-semibold border transition flex items-center gap-2 cursor-pointer ${
                         isSelected
-                          ? 'bg-emerald-700 text-white border-emerald-700 shadow-xs'
-                          : 'bg-stone-50 text-stone-700 border-stone-200 hover:bg-stone-100'
+                          ? 'bg-emerald-800 text-white border-emerald-900 shadow-2xs'
+                          : 'bg-white text-stone-800 border-stone-300 hover:bg-stone-50 active:bg-stone-100'
                       }`}
                     >
-                      {isSelected && <CheckCircle2 className="w-3 h-3 text-white" />}
+                      {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-white" />}
                       <span>{label}</span>
                     </button>
                   );
@@ -1227,10 +1227,10 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
               id="start-ai-analysis-btn"
               disabled={isAnalyzing}
               onClick={handleRunAnalysis}
-              className={`w-full py-3.5 px-6 rounded-xl font-bold text-white text-base shadow-sm transition flex items-center justify-center gap-2 cursor-pointer ${
+              className={`w-full min-h-[52px] px-6 rounded-lg font-semibold text-white text-base transition flex items-center justify-center gap-2.5 cursor-pointer select-none ${
                 isAnalyzing
                   ? 'bg-stone-400 cursor-not-allowed'
-                  : 'bg-emerald-700 hover:bg-emerald-800 active:scale-[0.99]'
+                  : 'bg-emerald-800 hover:bg-emerald-900 active:bg-emerald-950 shadow-xs'
               }`}
             >
               {isAnalyzing ? (
@@ -1240,13 +1240,13 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
                 </>
               ) : (
                 <>
-                  <HeartPulse className="w-5 h-5 text-emerald-100" />
+                  <HeartPulse className="w-5 h-5 text-white" />
                   <span>
                     {language === 'hi'
-                      ? 'पशु स्वास्थ्य का विश्लेषण करें (Analyze Animal)'
+                      ? 'स्वास्थ्य विश्लेषण शुरू करें'
                       : language === 'mr'
-                      ? 'जनावराचे आरोग्य तपासा (Analyze Animal)'
-                      : 'Analyze Animal'}
+                      ? 'आरोग्य विश्लेषण सुरू करा'
+                      : 'Run Health Assessment'}
                   </span>
                 </>
               )}
