@@ -171,3 +171,21 @@ export interface AdminAnalytics {
   monthlyAnalysisCount: { month: string; count: number }[];
   pendingVetRequests: number;
 }
+
+export type NotificationCategory = 'vaccination' | 'vet_response' | 'urgent_alert' | 'system';
+
+export interface PushNotificationItem {
+  id: string;
+  userId: string;
+  title: string;
+  body: string;
+  category: NotificationCategory;
+  relatedId?: string; // e.g. reminderId or vetRequestId
+  read: boolean;
+  urgent?: boolean;
+  createdAt: string;
+  data?: Record<string, string>;
+}
+
+export type PushPermissionStatus = 'default' | 'granted' | 'denied' | 'unsupported';
+

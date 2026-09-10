@@ -1,12 +1,12 @@
 {
   "projectId": "pashusathi-2ed8b",
-  "appId": "1:613482973540:web:eb244f7694b93e67305271",
+  "appId": "1:613482973540:web:80b1df854a132b38305271",
   "apiKey": "AIzaSyCQ4UgHZbgeT9zGMmTna9NabUAHy9SxsBk",
   "authDomain": "pashusathi-2ed8b.firebaseapp.com",
   "firestoreDatabaseId": "ai-studio-pashucareai-21e1b746-3ef9-4c5b-ae4a-ed4d93980af4",
   "storageBucket": "pashusathi-2ed8b.firebasestorage.app",
   "messagingSenderId": "613482973540",
-  "measurementId": "",
+  "measurementId": "G-DL7F8ENM6J",
   "oAuthClientId": "613482973540-ma3lg9982gr0e9fh14fqjl1g6i7rlvk9.apps.googleusercontent.com",
   "recaptchaSiteKey": ""
 }

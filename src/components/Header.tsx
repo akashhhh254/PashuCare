@@ -12,7 +12,8 @@ import {
   X,
   User,
   LogOut,
-  Info
+  Info,
+  Bell
 } from 'lucide-react';
 import { Language, UserProfile } from '../types';
 import { translations, getTranslation } from '../i18n/translations';
@@ -29,6 +30,8 @@ interface HeaderProps {
   onOpenAuth: (tab?: 'signin' | 'register') => void;
   onSignOut?: () => void;
   onOpenPrivacy?: () => void;
+  unreadNotificationsCount?: number;
+  onOpenNotifications?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -41,7 +44,9 @@ export const Header: React.FC<HeaderProps> = ({
   user,
   onOpenAuth,
   onSignOut,
-  onOpenPrivacy
+  onOpenPrivacy,
+  unreadNotificationsCount = 0,
+  onOpenNotifications
 }) => {
   const effectiveTab = activeTab || currentTab || 'home';
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -178,6 +183,22 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Action Tools: Language, PWA, User */}
           <div className="flex items-center gap-2 sm:gap-3">
             
+            {/* Real-time Push Notifications Bell */}
+            <button
+              id="header-notifications-btn"
+              onClick={onOpenNotifications}
+              className="relative p-2 rounded-lg border border-stone-300 text-stone-700 hover:bg-stone-50 hover:border-stone-400 transition cursor-pointer"
+              title="Notifications & Live Alerts"
+              aria-label="Notifications"
+            >
+              <Bell className="w-4 h-4 text-stone-700" />
+              {unreadNotificationsCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] rounded-full bg-red-600 text-white text-[10px] font-black flex items-center justify-center px-1 shadow-xs animate-pulse">
+                  {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
+                </span>
+              )}
+            </button>
+
             {/* PWA Install Button */}
             <PWAInstallButton />
 
@@ -325,6 +346,25 @@ export const Header: React.FC<HeaderProps> = ({
                   </button>
                 );
               })}
+
+              {/* Mobile Notification Button */}
+              <button
+                onClick={() => {
+                  if (onOpenNotifications) onOpenNotifications();
+                  setMobileMenuOpen(false);
+                }}
+                className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-base font-semibold text-stone-700 hover:bg-stone-50 transition border border-stone-200 mt-2"
+              >
+                <div className="flex items-center gap-3">
+                  <Bell className="w-5 h-5 text-emerald-700" />
+                  <span>{language === 'hi' ? 'पुश अलर्ट व सूचनाएं' : language === 'mr' ? 'पुश सूचना व अलर्ट्स' : 'Push Alerts & Notifications'}</span>
+                </div>
+                {unreadNotificationsCount > 0 && (
+                  <span className="px-2 py-0.5 rounded-full bg-red-600 text-white text-xs font-bold">
+                    {unreadNotificationsCount}
+                  </span>
+                )}
+              </button>
             </div>
           ) : (
             <div className="space-y-3 py-2">

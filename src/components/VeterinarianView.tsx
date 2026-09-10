@@ -180,9 +180,13 @@ export const VeterinarianView: React.FC<VeterinarianViewProps> = ({
             <h2 className="text-xl font-bold text-stone-900 mb-1">
               Book a Veterinary Doctor or Paravet Inspection
             </h2>
-            <p className="text-xs sm:text-sm text-stone-500 mb-6">
+            <p className="text-xs sm:text-sm text-stone-500 mb-3">
               Your consultation request and attached AI findings will be dispatched to the taluka veterinary dispensary.
             </p>
+            <div className="mb-5 inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold bg-red-50 text-red-800 border border-red-200">
+              <span className="w-2 h-2 rounded-full bg-red-600 animate-ping" />
+              <span>Real-time Urgent Push Alerts active: You will be notified instantly when a doctor responds.</span>
+            </div>
 
             {successMessage && (
               <div className="mb-6 p-4 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs sm:text-sm flex items-start gap-3">

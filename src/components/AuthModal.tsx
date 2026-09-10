@@ -19,7 +19,9 @@ import {
 import { UserProfile, Language } from '../types';
 import { translations, getTranslation } from '../i18n/translations';
 import {
+  signInWithGoogle,
   signInWithGooglePopup,
+  getCurrentHostname,
   registerWithEmailPassword,
   signInWithEmailPassword,
   sendPasswordReset,
@@ -105,7 +107,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setIsGoogleLoading(true);
 
     try {
-      const profile = await signInWithGooglePopup();
+      const profile = await signInWithGoogle();
+      if (!profile) {
+        // Redirection initiated for standalone mobile browsers
+        return;
+      }
       setSuccessMessage(
         language === 'hi'
           ? 'Google से सफलतापूर्वक साइन इन किया गया!'
@@ -118,13 +124,51 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         onClose();
       }, 500);
     } catch (err: any) {
-      console.error('Google Sign-In Error:', err);
-      if (err.code === 'auth/popup-closed-by-user') {
-        setErrorMessage('Sign in cancelled by user.');
-      } else if (err.code === 'auth/popup-blocked') {
-        setErrorMessage('Sign in popup was blocked by browser. Please allow popups.');
+      const currentHost = getCurrentHostname() || (typeof window !== 'undefined' ? window.location.hostname : 'this domain');
+      const isCancelled =
+        err?.code === 'auth/popup-closed-by-user' ||
+        err?.code === 'auth/cancelled-popup-request' ||
+        (err?.message && (
+          err.message.includes('popup-closed-by-user') ||
+          err.message.includes('cancelled-popup-request')
+        ));
+
+      if (isCancelled) {
+        console.warn('Google Sign-In popup closed by user.');
+        setErrorMessage(
+          language === 'hi'
+            ? 'साइन-इन विंडो बंद कर दी गई। आप पुनः प्रयास कर सकते हैं या ईमेल/पासवर्ड या फोन से साइन इन कर सकते हैं।'
+            : language === 'mr'
+            ? 'साइन-इन विंडो बंद केली गेली. आपण पुन्हा प्रयत्न करू शकता किंवा ईमेल/फोनने लॉगिन करू शकता.'
+            : 'Google sign-in popup was closed before completing. You can try again, or sign in using Email or Phone OTP below.'
+        );
+      } else if (err?.code === 'auth/popup-blocked' || (err?.message && err.message.includes('popup-blocked'))) {
+        console.warn('Google Sign-In popup blocked by browser.');
+        setErrorMessage(
+          language === 'hi'
+            ? 'ब्राउज़र द्वारा पॉपअप ब्लॉक कर दिया गया था। कृपया पॉपअप की अनुमति दें या नीचे ईमेल का उपयोग करें।'
+            : language === 'mr'
+            ? 'ब्राउझरद्वारे पॉपअप ब्लॉक केले गेले होते. कृपया पॉपअपला अनुमती द्या किंवा खाली ईमेल वापरा.'
+            : 'Sign-in popup was blocked by your browser. Please allow popups or use Email/Phone below.'
+        );
+      } else if (err?.code === 'auth/unauthorized-domain' || (err?.message && err.message.includes('unauthorized-domain'))) {
+        console.warn(`Firebase Auth unauthorized domain: ${currentHost}`);
+        setErrorMessage(
+          language === 'hi'
+            ? `Google साइन-इन इस डोमेन (${currentHost}) के लिए अधिकृत नहीं है। कृपया Firebase Console → Authentication → Settings → Authorized domains में '${currentHost}' जोड़ें। आप नीचे ईमेल या फोन OTP से साइन इन कर सकते हैं।`
+            : language === 'mr'
+            ? `Google लॉगिन या डोमेनसाठी (${currentHost}) अधिकृत नाही. कृपया Firebase Console → Authentication → Settings → Authorized domains मध्ये '${currentHost}' जोडा. आपण खाली ईमेल किंवा फोन OTP ने लॉगिन करू शकता.`
+            : `Google Sign-In is not yet authorized for this domain (${currentHost}). To enable Google login here, add '${currentHost}' in Firebase Console → Authentication → Settings → Authorized domains. You can also sign in with Email & Password or Phone OTP below.`
+        );
       } else {
-        setErrorMessage(err.message || 'Google Sign-In failed. Please try again.');
+        console.warn('Google Sign-In notice:', err?.code || err?.message || err);
+        setErrorMessage(
+          language === 'hi'
+            ? 'Google साइन इन पूरा नहीं हो सका। कृपया पुनः प्रयास करें या ईमेल / फोन का उपयोग करें।'
+            : language === 'mr'
+            ? 'Google साइन इन पूर्ण होऊ शकले नाही. कृपया पुन्हा प्रयत्न करा किंवा ईमेल / फोन वापरा.'
+            : (err?.message || 'Google Sign-In could not be completed. Please try again or use Email / Phone below.')
+        );
       }
     } finally {
       setIsGoogleLoading(false);
@@ -187,7 +231,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         onClose();
       }, 600);
     } catch (err: any) {
-      console.error('Firebase Registration Error:', err);
+      console.warn('Firebase Registration notice:', err?.code || err?.message || err);
       if (err.code === 'auth/email-already-in-use') {
         setErrorMessage(
           language === 'hi'
@@ -234,7 +278,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         onClose();
       }, 500);
     } catch (err: any) {
-      console.error('Firebase Sign-In Error:', err);
+      console.warn('Firebase Sign-In notice:', err?.code || err?.message || err);
       if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
         setErrorMessage(
           language === 'hi'
@@ -277,7 +321,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           : `Password reset link sent to ${email}. Please check your inbox or spam folder!`
       );
     } catch (err: any) {
-      console.error('Password Reset Error:', err);
+      console.warn('Password Reset notice:', err?.code || err?.message || err);
       if (err.code === 'auth/user-not-found') {
         setErrorMessage('No user found with this email address.');
       } else {
@@ -320,7 +364,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           : `SMS verification code sent to ${fullPhoneNumber}!`
       );
     } catch (err: any) {
-      console.error('Phone Auth OTP Error:', err);
+      console.warn('Phone Auth OTP notice:', err?.code || err?.message || err);
       if (err.code === 'auth/invalid-phone-number') {
         setErrorMessage('Invalid phone number format. Please check the country code and number.');
       } else if (err.code === 'auth/quota-exceeded') {
@@ -372,7 +416,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         onClose();
       }, 500);
     } catch (err: any) {
-      console.error('Confirm Phone OTP Error:', err);
+      console.warn('Confirm Phone OTP notice:', err?.code || err?.message || err);
       if (err.code === 'auth/invalid-verification-code') {
         setErrorMessage('Invalid verification code. Please check your SMS and try again.');
       } else if (err.code === 'auth/code-expired') {
@@ -383,28 +427,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     } finally {
       setIsLoading(false);
     }
-  };
-
-  // ==========================================
-  // 7. QUICK DEMO SIGN-IN HELPER
-  // ==========================================
-  const handleQuickDemoSignIn = (role: 'farmer' | 'admin') => {
-    const demoUser: UserProfile = {
-      id: role === 'admin' ? 'admin-user-1' : 'farmer-pashu-1',
-      name: role === 'admin' ? 'Dr. Sunita Sharma' : 'Ramesh Patil',
-      email: role === 'admin' ? 'admin@pashucare.org' : 'ramesh.patil@kisan.in',
-      phone: '+91 98765 43210',
-      preferredLanguage: language,
-      farmName: 'Patil Dairy & Livestock Farm',
-      farmLocation: 'Nashik, Maharashtra',
-      role: role,
-      createdAt: new Date().toISOString()
-    };
-    setSuccessMessage(`Demo ${role === 'admin' ? 'Admin' : 'Farmer'} logged in successfully!`);
-    setTimeout(() => {
-      onSuccess(demoUser);
-      onClose();
-    }, 400);
   };
 
   if (!isOpen) return null;
@@ -656,7 +678,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         required
                         maxLength={6}
                         autoFocus
-                        placeholder="123456"
+                        placeholder="Enter 6-digit code"
                         value={otpCode}
                         onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
                         className="w-full pl-9 pr-3 py-2.5 text-center text-lg font-mono font-black tracking-widest rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-600"
@@ -1067,33 +1089,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               )}
             </div>
           )}
-
-          {/* ========================================================= */}
-          {/* SECTION C: DEMO QUICK SIGN-IN OPTIONS */}
-          {/* ========================================================= */}
-          <div className="pt-2 border-t border-stone-100 space-y-2">
-            <p className="text-[11px] font-bold text-stone-400 text-center uppercase tracking-wider">
-              Testing & Evaluation
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                id="demo-farmer-login-btn"
-                type="button"
-                onClick={() => handleQuickDemoSignIn('farmer')}
-                className="py-2 px-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold text-[11px] transition text-center"
-              >
-                {t('authDemoLogin')}
-              </button>
-              <button
-                id="demo-admin-login-btn"
-                type="button"
-                onClick={() => handleQuickDemoSignIn('admin')}
-                className="py-2 px-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold text-[11px] transition text-center"
-              >
-                {t('authAdminLogin')}
-              </button>
-            </div>
-          </div>
         </div>
       </div>
     </div>

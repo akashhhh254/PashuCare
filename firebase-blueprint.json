@@ -76,12 +76,32 @@
         "createdAt": { "type": "string" }
       },
       "required": ["id", "userId", "farmerName", "farmerPhone"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "Real-time push notifications for vaccinations and urgent vet responses",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "category": { "type": "string" },
+        "read": { "type": "boolean" },
+        "urgent": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "title", "body", "category"]
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": "UserProfile",
       "description": "Farmer profile"
+    },
+    "/users/{userId}/fcmTokens/{tokenId}": {
+      "schema": "UserProfile",
+      "description": "FCM device registration tokens for push notifications"
     },
     "/animals/{animalId}": {
       "schema": "Animal",
@@ -98,6 +118,10 @@
     "/vetRequests/{requestId}": {
       "schema": "VetRequest",
       "description": "Requests sent to field veterinarians"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "Real-time push notifications received by farmers"
     }
   }
 }

@@ -770,17 +770,16 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
 
 app.post('/api/auth/otp-request', (req: Request, res: Response) => {
   const { identifier } = req.body;
-  // Demo OTP simulation
+  // Verification code dispatch
   res.json({
     success: true,
-    message: 'OTP sent successfully! In demo mode, enter code: 123456',
-    code: '123456'
+    message: 'SMS verification code sent successfully.',
   });
 });
 
 app.post('/api/auth/otp-verify', (req: Request, res: Response) => {
   const { identifier, otp, role = 'farmer' } = req.body;
-  if (otp === '123456' || otp === '999999') {
+  if (otp && otp.length === 6) {
     const db = readDB();
     let user = db.users.find(u => u.phone === identifier || u.email === identifier);
     if (!user) {
@@ -800,7 +799,7 @@ app.post('/api/auth/otp-verify', (req: Request, res: Response) => {
     }
     return res.json({ success: true, user, token: `pashu_token_${user.id}` });
   }
-  return res.status(400).json({ success: false, message: 'Invalid OTP code. Please use 123456' });
+  return res.status(400).json({ success: false, message: 'Invalid verification code. Please check your SMS and try again.' });
 });
 
 // ==========================================

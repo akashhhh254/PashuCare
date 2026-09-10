@@ -1,4 +1,12 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
+import { getAnalytics, isSupported, Analytics } from 'firebase/analytics';
+import { 
+  getMessaging, 
+  getToken, 
+  onMessage, 
+  isSupported as isMessagingSupported, 
+  Messaging 
+} from 'firebase/messaging';
 import { 
   getAuth, 
   signOut as firebaseSignOut,
@@ -8,6 +16,8 @@ import {
   updateProfile,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   RecaptchaVerifier,
   signInWithPhoneNumber,
   ConfirmationResult,
@@ -17,6 +27,9 @@ import {
 } from 'firebase/auth';
 import { 
   getFirestore, 
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   doc, 
   getDocFromServer, 
   Firestore,
@@ -29,21 +42,85 @@ import {
   where,
   onSnapshot
 } from 'firebase/firestore';
-import firebaseConfig from '../../firebase-applet-config.json';
-import { AnimalProfile, HealthReport, Reminder, VeterinarianRequest, UserProfile } from '../types';
+import bundledFirebaseConfig from '../../firebase-applet-config.json';
+import { 
+  AnimalProfile, 
+  HealthReport, 
+  Reminder, 
+  VeterinarianRequest, 
+  UserProfile,
+  PushNotificationItem,
+  PushPermissionStatus
+} from '../types';
+
+// Resolve active Firebase configuration from Vite environment variables (e.g. Vercel deployment)
+// with safe fallback to bundled project configuration.
+const metaEnv = typeof import.meta !== 'undefined' ? (import.meta as any).env : undefined;
+export const activeFirebaseConfig = {
+  apiKey: metaEnv?.VITE_FIREBASE_API_KEY || bundledFirebaseConfig.apiKey,
+  authDomain: metaEnv?.VITE_FIREBASE_AUTH_DOMAIN || bundledFirebaseConfig.authDomain,
+  projectId: metaEnv?.VITE_FIREBASE_PROJECT_ID || bundledFirebaseConfig.projectId,
+  storageBucket: metaEnv?.VITE_FIREBASE_STORAGE_BUCKET || bundledFirebaseConfig.storageBucket,
+  messagingSenderId: metaEnv?.VITE_FIREBASE_MESSAGING_SENDER_ID || bundledFirebaseConfig.messagingSenderId,
+  appId: metaEnv?.VITE_FIREBASE_APP_ID || bundledFirebaseConfig.appId,
+  firestoreDatabaseId: metaEnv?.VITE_FIREBASE_DATABASE_ID || bundledFirebaseConfig.firestoreDatabaseId,
+  measurementId: metaEnv?.VITE_FIREBASE_MEASUREMENT_ID || bundledFirebaseConfig.measurementId,
+};
 
 // Initialize Firebase App
 export const app: FirebaseApp = getApps().length === 0 
-  ? initializeApp(firebaseConfig) 
+  ? initializeApp(activeFirebaseConfig) 
   : getApp();
 
 // Initialize Firebase Auth
 export const auth: Auth = getAuth(app);
 
-// Initialize Firestore with custom databaseId if configured
-export const db: Firestore = firebaseConfig.firestoreDatabaseId
-  ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
-  : getFirestore(app);
+// Initialize Firebase Analytics safely (supported in modern browser environments)
+export let analytics: Analytics | null = null;
+if (typeof window !== 'undefined') {
+  isSupported().then((supported) => {
+    if (supported && activeFirebaseConfig.measurementId) {
+      analytics = getAnalytics(app);
+    }
+  }).catch((err) => {
+    console.debug('Firebase Analytics initialization notice:', err);
+  });
+}
+
+// Initialize Firebase Cloud Messaging safely (supported in browser environments with Service Worker)
+export let messaging: Messaging | null = null;
+if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+  isMessagingSupported().then((supported) => {
+    if (supported) {
+      try {
+        messaging = getMessaging(app);
+      } catch (e) {
+        console.debug('FCM Messaging initialization notice:', e);
+      }
+    }
+  }).catch((err) => {
+    console.debug('FCM not supported in current environment:', err);
+  });
+}
+
+// Initialize Firestore with persistent multi-tab local cache for robust offline and low-connectivity support
+let firestoreDb: Firestore;
+try {
+  firestoreDb = initializeFirestore(
+    app,
+    {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager()
+      })
+    },
+    activeFirebaseConfig.firestoreDatabaseId || undefined
+  );
+} catch {
+  firestoreDb = activeFirebaseConfig.firestoreDatabaseId
+    ? getFirestore(app, activeFirebaseConfig.firestoreDatabaseId)
+    : getFirestore(app);
+}
+export const db: Firestore = firestoreDb;
 
 // Configure real Google Auth Provider
 export const googleAuthProvider = new GoogleAuthProvider();
@@ -52,6 +129,28 @@ googleAuthProvider.addScope('email');
 googleAuthProvider.setCustomParameters({
   prompt: 'select_account',
 });
+
+// Environment / Platform Detection Helpers
+export function isEmbeddedInIframe(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+}
+
+export function isMobileBrowser(): boolean {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768;
+}
+
+export function getCurrentHostname(): string {
+  if (typeof window !== 'undefined' && window.location) {
+    return window.location.hostname;
+  }
+  return '';
+}
 
 // Operation Types as required by Firebase skill
 export enum OperationType {
@@ -80,25 +179,50 @@ export interface FirestoreErrorInfo {
   };
 }
 
+export function isPermissionError(error: unknown): boolean {
+  if (!error) return false;
+  const msg = error instanceof Error ? error.message : String(error);
+  const code = (error as any)?.code;
+  return (
+    code === 'permission-denied' ||
+    msg.includes('Missing or insufficient permissions') ||
+    msg.includes('permission-denied') ||
+    msg.includes('insufficient permissions')
+  );
+}
+
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
-      providerInfo: auth.currentUser?.providerData?.map(provider => ({
-        providerId: provider.providerId,
-        email: provider.email,
-      })) || []
-    },
-    operationType,
-    path
-  };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  const errMessage = error instanceof Error ? error.message : String(error);
+
+  // Mandated by Firebase skill: catch permission errors and throw the structured JSON format
+  if (isPermissionError(error)) {
+    const errInfo: FirestoreErrorInfo = {
+      error: errMessage,
+      authInfo: {
+        userId: auth.currentUser?.uid,
+        email: auth.currentUser?.email,
+        emailVerified: auth.currentUser?.emailVerified,
+        isAnonymous: auth.currentUser?.isAnonymous,
+        tenantId: auth.currentUser?.tenantId,
+        providerInfo: auth.currentUser?.providerData?.map(provider => ({
+          providerId: provider.providerId,
+          email: provider.email,
+        })) || []
+      },
+      operationType,
+      path
+    };
+    console.error('Firestore Error: ', JSON.stringify(errInfo));
+    throw new Error(JSON.stringify(errInfo));
+  }
+
+  // If offline or network unavailable, log a warning without throwing or tripping security rules
+  if (errMessage.includes('client is offline') || (error as any)?.code === 'unavailable') {
+    console.warn(`Firestore offline notice during [${operationType}] on [${path || 'path'}]: ${errMessage}`);
+    return;
+  }
+
+  console.warn(`Firestore operation [${operationType}] on [${path || 'path'}]:`, errMessage);
 }
 
 // Test connection as required by skill guidelines
@@ -118,30 +242,98 @@ testConnection();
 // ==========================================
 
 /**
- * 1. Google Sign-In with Popup
+ * 1. Google Sign-In with Smart Popup & Mobile Redirect flow
+ * - On standalone mobile browsers (Android Chrome / iOS), initiates seamless redirect
+ * - On desktop or inside an iframe, uses popup
+ * - Automatically handles popup-blocked by falling back to redirect
  */
-export async function signInWithGooglePopup(): Promise<UserProfile> {
-  const userCredential = await signInWithPopup(auth, googleAuthProvider);
-  const fbUser = userCredential.user;
+export async function signInWithGoogle(): Promise<UserProfile | null> {
+  const inIframe = isEmbeddedInIframe();
+  const onMobile = isMobileBrowser();
 
-  // Retrieve or create UserProfile in Firestore
-  let profile = await getUserProfileFromFirestore(fbUser.uid);
-  if (!profile) {
-    profile = {
-      id: fbUser.uid,
-      name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Farmer',
-      email: fbUser.email || '',
-      phone: fbUser.phoneNumber || '',
-      preferredLanguage: 'en',
-      farmName: `${fbUser.displayName ? fbUser.displayName.split(' ')[0] : 'Farmer'}'s Livestock Farm`,
-      farmLocation: 'Maharashtra, India',
-      role: (fbUser.email && fbUser.email.toLowerCase().includes('admin')) ? 'admin' : 'farmer',
-      photoUrl: fbUser.photoURL || undefined,
-      createdAt: new Date().toISOString()
-    };
-    await syncUserProfileToFirestore(profile);
+  // If user is on a mobile device and NOT running in an iframe (e.g. Vercel deployment),
+  // mobile browsers frequently suppress or mishandle popups. Redirect provides 100% reliable auth.
+  if (onMobile && !inIframe) {
+    try {
+      await signInWithRedirect(auth, googleAuthProvider);
+      return null; // Page will redirect to Google authentication
+    } catch (redirectErr) {
+      console.warn('Redirect initiation notice, attempting popup:', redirectErr);
+    }
   }
-  return profile;
+
+  // Desktop or iframe environment
+  try {
+    const userCredential = await signInWithPopup(auth, googleAuthProvider);
+    const fbUser = userCredential.user;
+
+    // Retrieve or create UserProfile in Firestore
+    let profile = await getUserProfileFromFirestore(fbUser.uid);
+    if (!profile) {
+      profile = {
+        id: fbUser.uid,
+        name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Farmer',
+        email: fbUser.email || '',
+        phone: fbUser.phoneNumber || '',
+        preferredLanguage: 'en',
+        farmName: `${fbUser.displayName ? fbUser.displayName.split(' ')[0] : 'Farmer'}'s Livestock Farm`,
+        farmLocation: 'Maharashtra, India',
+        role: (fbUser.email && fbUser.email.toLowerCase().includes('admin')) ? 'admin' : 'farmer',
+        photoUrl: fbUser.photoURL || undefined,
+        createdAt: new Date().toISOString()
+      };
+      await syncUserProfileToFirestore(profile);
+    }
+    return profile;
+  } catch (popupErr: any) {
+    // If popup was blocked and we are not in an iframe, fall back to redirect
+    if ((popupErr?.code === 'auth/popup-blocked' || popupErr?.message?.includes('popup-blocked')) && !inIframe) {
+      console.warn('Popup blocked, falling back to redirect flow...');
+      await signInWithRedirect(auth, googleAuthProvider);
+      return null;
+    }
+    throw popupErr;
+  }
+}
+
+// Retain alias for backwards compatibility
+export const signInWithGooglePopup = signInWithGoogle as () => Promise<UserProfile>;
+
+/**
+ * Handle redirect result when user returns from Google Sign-In on mobile
+ */
+export async function handleRedirectAuthResult(): Promise<UserProfile | null> {
+  try {
+    const result = await getRedirectResult(auth);
+    if (!result || !result.user) return null;
+    const fbUser = result.user;
+
+    let profile = await getUserProfileFromFirestore(fbUser.uid);
+    if (!profile) {
+      profile = {
+        id: fbUser.uid,
+        name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Farmer',
+        email: fbUser.email || '',
+        phone: fbUser.phoneNumber || '',
+        preferredLanguage: 'en',
+        farmName: `${fbUser.displayName ? fbUser.displayName.split(' ')[0] : 'Farmer'}'s Livestock Farm`,
+        farmLocation: 'Maharashtra, India',
+        role: (fbUser.email && fbUser.email.toLowerCase().includes('admin')) ? 'admin' : 'farmer',
+        photoUrl: fbUser.photoURL || undefined,
+        createdAt: new Date().toISOString()
+      };
+      await syncUserProfileToFirestore(profile);
+    }
+    return profile;
+  } catch (error: any) {
+    if (
+      error?.code !== 'auth/popup-closed-by-user' && 
+      error?.code !== 'auth/cancelled-popup-request'
+    ) {
+      console.warn('Redirect auth result notice:', error?.code || error?.message);
+    }
+    return null;
+  }
 }
 
 /**
@@ -322,8 +514,26 @@ export async function getUserProfileFromFirestore(uid: string): Promise<UserProf
       return snap.data() as UserProfile;
     }
     return null;
-  } catch (error) {
-    handleFirestoreError(error, OperationType.GET, path);
+  } catch (error: any) {
+    if (isPermissionError(error)) {
+      handleFirestoreError(error, OperationType.GET, path);
+    }
+    console.warn(`Firestore user profile read note for ${uid}:`, error?.message || error);
+    
+    // Attempt recovery from local storage cache for seamless offline operation
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const cached = localStorage.getItem('pashucare_user');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed && parsed.id === uid) {
+            return parsed;
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
     return null;
   }
 }
@@ -512,4 +722,322 @@ export async function addVetRequestToFirestore(request: VeterinarianRequest): Pr
     handleFirestoreError(error, OperationType.CREATE, path);
   }
 }
+
+/**
+ * ============================================================================
+ * FIREBASE CLOUD MESSAGING (FCM) & REAL-TIME NOTIFICATIONS FOR LIVESTOCK CARE
+ * ============================================================================
+ */
+
+/**
+ * Request Push Notification Permission and acquire FCM Device Registration Token
+ */
+export async function requestPushNotificationPermission(userId?: string): Promise<{
+  status: PushPermissionStatus;
+  token: string | null;
+  error?: string;
+}> {
+  if (typeof window === 'undefined') {
+    return { status: 'unsupported', token: null };
+  }
+
+  if (!('Notification' in window)) {
+    return { 
+      status: 'unsupported', 
+      token: null, 
+      error: 'Web Push Notifications are not supported in this browser environment.' 
+    };
+  }
+
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') {
+      return { status: permission as PushPermissionStatus, token: null };
+    }
+
+    // Register FCM Service Worker
+    let swReg: ServiceWorkerRegistration | undefined;
+    if ('serviceWorker' in navigator) {
+      try {
+        swReg = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+        await navigator.serviceWorker.ready;
+      } catch (swErr) {
+        console.warn('FCM Service worker registration note:', swErr);
+      }
+    }
+
+    // Verify FCM messaging support in current context
+    const supported = await isMessagingSupported().catch(() => false);
+    if (!supported) {
+      return { 
+        status: 'granted', 
+        token: null, 
+        error: 'Push permission granted (local notifications active).' 
+      };
+    }
+
+    if (!messaging) {
+      messaging = getMessaging(app);
+    }
+
+    let token: string | null = null;
+    try {
+      token = await getToken(messaging, {
+        serviceWorkerRegistration: swReg,
+      });
+    } catch (tokenErr: any) {
+      console.warn('FCM getToken note (falling back to standard service worker push):', tokenErr);
+    }
+
+    // Persist registration token to Firestore if user is authenticated
+    if (userId && token) {
+      await registerFCMTokenInFirestore(userId, token);
+    }
+
+    return { status: 'granted', token };
+  } catch (err: any) {
+    console.error('Error requesting notification permission:', err);
+    return { status: 'denied', token: null, error: err.message };
+  }
+}
+
+/**
+ * Persist farmer device FCM token into Firestore
+ */
+export async function registerFCMTokenInFirestore(userId: string, token: string): Promise<void> {
+  const tokenDocId = token.replace(/[^a-zA-Z0-9_-]/g, '_').slice(-40);
+  const path = `users/${userId}/fcmTokens/${tokenDocId}`;
+  try {
+    await setDoc(doc(db, 'users', userId, 'fcmTokens', tokenDocId), {
+      token,
+      userId,
+      updatedAt: new Date().toISOString(),
+      userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
+      platform: 'web'
+    }, { merge: true });
+  } catch (err) {
+    console.warn('Firestore FCM token registration note:', err);
+  }
+}
+
+/**
+ * Foreground FCM Message Listener (triggered when the web app is open)
+ */
+export function subscribeToForegroundFCM(
+  onNotificationReceived: (notification: { title: string; body: string; data?: any }) => void
+): () => void {
+  if (typeof window === 'undefined') return () => {};
+
+  let unsubscribe: (() => void) | null = null;
+
+  isMessagingSupported().then((supported) => {
+    if (supported) {
+      try {
+        if (!messaging) {
+          messaging = getMessaging(app);
+        }
+        unsubscribe = onMessage(messaging, (payload) => {
+          console.log('[FCM] Foreground push notification received:', payload);
+          const title = payload.notification?.title || payload.data?.title || 'PashuCare AI Alert';
+          const body = payload.notification?.body || payload.data?.body || 'New livestock update.';
+          
+          onNotificationReceived({
+            title,
+            body,
+            data: payload.data
+          });
+
+          // Trigger browser notification if permission is active
+          triggerLocalPushNotification(title, {
+            body,
+            icon: '/icon.svg',
+            badge: '/icon.svg',
+            data: payload.data
+          });
+        });
+      } catch (e) {
+        console.debug('Foreground message listener notice:', e);
+      }
+    }
+  }).catch(() => {});
+
+  return () => {
+    if (unsubscribe) unsubscribe();
+  };
+}
+
+/**
+ * Display a system-level browser push notification (via Service Worker or Notification API)
+ */
+export function triggerLocalPushNotification(title: string, options?: NotificationOptions): void {
+  if (typeof window === 'undefined' || !('Notification' in window)) return;
+  if (Notification.permission === 'granted') {
+    try {
+      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.ready.then((reg) => {
+          reg.showNotification(title, {
+            icon: '/icon.svg',
+            badge: '/icon.svg',
+            ...options
+          } as any);
+        }).catch(() => {
+          new Notification(title, options);
+        });
+      } else {
+        new Notification(title, options);
+      }
+    } catch (e) {
+      console.debug('System notification notice:', e);
+    }
+  }
+}
+
+/**
+ * Real-time Notifications Subscription for the logged-in Farmer
+ */
+export function subscribeToNotifications(
+  userId: string,
+  onUpdate: (notifications: PushNotificationItem[]) => void,
+  onError?: (err: any) => void
+): () => void {
+  const path = 'notifications';
+  const q = query(collection(db, path), where('userId', '==', userId));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const items: PushNotificationItem[] = [];
+      snapshot.forEach((docSnap) => {
+        items.push({ id: docSnap.id, ...(docSnap.data() as any) });
+      });
+      items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      onUpdate(items);
+    },
+    (error) => {
+      if (onError) onError(error);
+      handleFirestoreError(error, OperationType.LIST, path);
+    }
+  );
+}
+
+/**
+ * Save notification record in Firestore
+ */
+export async function addNotificationToFirestore(item: PushNotificationItem): Promise<void> {
+  const path = `notifications/${item.id}`;
+  try {
+    await setDoc(doc(db, 'notifications', item.id), item);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
+}
+
+/**
+ * Mark notification as read
+ */
+export async function markNotificationAsReadInFirestore(notificationId: string): Promise<void> {
+  const path = `notifications/${notificationId}`;
+  try {
+    await updateDoc(doc(db, 'notifications', notificationId), { read: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+/**
+ * Delete a notification
+ */
+export async function deleteNotificationFromFirestore(notificationId: string): Promise<void> {
+  const path = `notifications/${notificationId}`;
+  try {
+    await deleteDoc(doc(db, 'notifications', notificationId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+/**
+ * Dispatch real-time alert for upcoming vaccination reminders
+ */
+export async function dispatchVaccinationAlert(
+  userId: string,
+  animalName: string,
+  reminderTitle: string,
+  dueDate: string
+): Promise<PushNotificationItem> {
+  const notificationId = `notif-vax-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const title = `💉 Vaccination Due: ${animalName}`;
+  const body = `Upcoming vaccination "${reminderTitle}" is due on ${dueDate}. Ensure immunizations are administered on time.`;
+
+  const item: PushNotificationItem = {
+    id: notificationId,
+    userId,
+    title,
+    body,
+    category: 'vaccination',
+    read: false,
+    urgent: false,
+    createdAt: new Date().toISOString(),
+    data: {
+      animalName,
+      reminderTitle,
+      dueDate,
+      url: '/?tab=reminders'
+    }
+  };
+
+  await addNotificationToFirestore(item);
+  triggerLocalPushNotification(title, {
+    body,
+    icon: '/icon.svg',
+    badge: '/icon.svg',
+    data: { url: '/?tab=reminders', category: 'vaccination' }
+  });
+
+  return item;
+}
+
+/**
+ * Dispatch real-time alert for urgent veterinarian responses
+ */
+export async function dispatchUrgentVetResponseAlert(
+  userId: string,
+  animalName: string,
+  vetName: string,
+  vetNotes: string,
+  status: string
+): Promise<PushNotificationItem> {
+  const notificationId = `notif-vet-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const title = `🚨 Urgent Vet Response: ${animalName}`;
+  const cleanNotes = vetNotes ? ` "${vetNotes.slice(0, 90)}${vetNotes.length > 90 ? '...' : ''}"` : '';
+  const body = `Dr. ${vetName || 'Field Veterinarian'} marked consultation as [${status}]. Clinical note:${cleanNotes}`;
+
+  const item: PushNotificationItem = {
+    id: notificationId,
+    userId,
+    title,
+    body,
+    category: 'vet_response',
+    read: false,
+    urgent: true,
+    createdAt: new Date().toISOString(),
+    data: {
+      animalName,
+      vetName,
+      status,
+      url: '/?tab=vet'
+    }
+  };
+
+  await addNotificationToFirestore(item);
+  triggerLocalPushNotification(title, {
+    body,
+    icon: '/icon.svg',
+    badge: '/icon.svg',
+    requireInteraction: true,
+    data: { url: '/?tab=vet', category: 'vet_response', urgent: 'true' }
+  });
+
+  return item;
+}
+
 

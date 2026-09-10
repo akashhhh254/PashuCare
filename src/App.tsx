@@ -18,13 +18,17 @@ import { AuthModal } from './components/AuthModal';
 import { PrivacyModal } from './components/PrivacyModal';
 import { ProfileView } from './components/ProfileView';
 import { Footer } from './components/Footer';
+import { NotificationCenter } from './components/NotificationCenter';
+import { ForegroundNotificationToast } from './components/ForegroundNotificationToast';
 import {
   AnimalProfile,
   HealthReport,
   Language,
   Reminder,
   UserProfile,
-  VeterinarianRequest
+  VeterinarianRequest,
+  PushNotificationItem,
+  PushPermissionStatus
 } from './types';
 import { translations, getTranslation } from './i18n/translations';
 import {
@@ -42,7 +46,16 @@ import {
   addReminderToFirestore,
   toggleReminderInFirestore,
   deleteReminderFromFirestore,
-  addVetRequestToFirestore
+  addVetRequestToFirestore,
+  handleRedirectAuthResult,
+  syncUserProfileToFirestore,
+  requestPushNotificationPermission,
+  subscribeToForegroundFCM,
+  subscribeToNotifications,
+  markNotificationAsReadInFirestore,
+  deleteNotificationFromFirestore,
+  dispatchVaccinationAlert,
+  dispatchUrgentVetResponseAlert
 } from './lib/firebase';
 
 export default function App() {
@@ -80,6 +93,17 @@ export default function App() {
   const [selectedAnimal, setSelectedAnimal] = useState<AnimalProfile | null>(null);
   const [preselectedAnimalForCheck, setPreselectedAnimalForCheck] = useState<AnimalProfile | null>(null);
 
+  // Real-time Push Notifications & FCM State
+  const [notifications, setNotifications] = useState<PushNotificationItem[]>([]);
+  const [showNotificationCenter, setShowNotificationCenter] = useState<boolean>(false);
+  const [foregroundToast, setForegroundToast] = useState<PushNotificationItem | null>(null);
+  const [pushPermissionStatus, setPushPermissionStatus] = useState<PushPermissionStatus>(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      return Notification.permission as PushPermissionStatus;
+    }
+    return 'unsupported';
+  });
+
   // Modals
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authInitialTab, setAuthInitialTab] = useState<'signin' | 'register'>('register');
@@ -96,23 +120,60 @@ export default function App() {
     localStorage.setItem('pashucare_lang', lang);
   };
 
-  // Listen to Firebase Auth state
+  // Listen to Firebase Auth state & handle mobile OAuth redirect
   useEffect(() => {
+    // Check if returning from Google Sign-In redirect on mobile
+    handleRedirectAuthResult().then((redirectProfile) => {
+      if (redirectProfile) {
+        setUser(redirectProfile);
+        localStorage.setItem('pashucare_user', JSON.stringify(redirectProfile));
+        setShowAuthModal(false);
+      }
+    }).catch((e) => {
+      console.warn('Redirect auth result check notice:', e);
+    });
+
     const unsubscribe = onAuthUserChanged(async (fbUser) => {
       if (fbUser) {
         try {
-          const profile = await getUserProfileFromFirestore(fbUser.uid);
-          if (profile) {
-            setUser(profile);
-            localStorage.setItem('pashucare_user', JSON.stringify(profile));
+          let profile = await getUserProfileFromFirestore(fbUser.uid);
+          if (!profile) {
+            try {
+              const cachedStr = localStorage.getItem('pashucare_user');
+              if (cachedStr) {
+                const parsed = JSON.parse(cachedStr);
+                if (parsed && parsed.id === fbUser.uid) {
+                  profile = parsed;
+                }
+              }
+            } catch {}
           }
+          if (!profile) {
+            profile = {
+              id: fbUser.uid,
+              name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Farmer',
+              email: fbUser.email || '',
+              phone: fbUser.phoneNumber || '',
+              preferredLanguage: language || 'en',
+              farmName: 'My Livestock Farm',
+              farmLocation: 'Maharashtra, India',
+              role: (fbUser.email && fbUser.email.toLowerCase().includes('admin')) ? 'admin' : 'farmer',
+              photoUrl: fbUser.photoURL || undefined,
+              createdAt: new Date().toISOString()
+            };
+            syncUserProfileToFirestore(profile).catch((err) => {
+              console.warn('Sync user profile offline note:', err);
+            });
+          }
+          setUser(profile);
+          localStorage.setItem('pashucare_user', JSON.stringify(profile));
         } catch (e) {
           console.warn('Firebase user profile retrieval notice:', e);
         }
       }
     });
     return () => unsubscribe();
-  }, []);
+  }, [language]);
 
   // Fetch initial data from backend API as fallback
   const refreshData = async () => {
@@ -189,13 +250,183 @@ export default function App() {
       (err) => console.warn('Realtime vet requests sync:', err)
     );
 
+    // Subscribe to farmer's real-time push notifications collection
+    const unsubNotifications = subscribeToNotifications(
+      user.id,
+      (realtimeNotifications) => {
+        setNotifications(realtimeNotifications);
+        try {
+          localStorage.setItem('pashucare_notifications', JSON.stringify(realtimeNotifications));
+        } catch {}
+      },
+      (err) => console.warn('Realtime notifications sync note:', err)
+    );
+
+    // Subscribe to foreground FCM push events
+    const unsubForegroundFCM = subscribeToForegroundFCM((payload) => {
+      const item: PushNotificationItem = {
+        id: `fcm-${Date.now()}`,
+        userId: user.id,
+        title: payload.title,
+        body: payload.body,
+        category: (payload.data?.category as any) || 'system',
+        read: false,
+        urgent: payload.data?.urgent === 'true',
+        createdAt: new Date().toISOString(),
+        data: payload.data
+      };
+      setForegroundToast(item);
+    });
+
     return () => {
       unsubAnimals();
       unsubReports();
       unsubReminders();
       unsubVetRequests();
+      unsubNotifications();
+      unsubForegroundFCM();
     };
   }, [user?.id]);
+
+  // Automated Upcoming Vaccination Push Notification Alert Scanner
+  useEffect(() => {
+    if (reminders.length === 0) return;
+
+    const today = new Date().toISOString().split('T')[0];
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+    const dayAfter = new Date(Date.now() + 172800000).toISOString().split('T')[0];
+
+    const notifiedKey = 'pashucare_vax_notified';
+    let notifiedMap: Record<string, boolean> = {};
+    try {
+      notifiedMap = JSON.parse(localStorage.getItem(notifiedKey) || '{}');
+    } catch {}
+
+    reminders.forEach((rem) => {
+      if (!rem.completed && (rem.dueDate === today || rem.dueDate === tomorrow || rem.dueDate === dayAfter)) {
+        const reminderNotifKey = `${rem.id}_${rem.dueDate}`;
+        if (!notifiedMap[reminderNotifKey]) {
+          notifiedMap[reminderNotifKey] = true;
+          try {
+            localStorage.setItem(notifiedKey, JSON.stringify(notifiedMap));
+          } catch {}
+
+          const dueLabel = rem.dueDate === today ? 'Today' : rem.dueDate === tomorrow ? 'Tomorrow' : rem.dueDate;
+          dispatchVaccinationAlert(
+            user?.id || 'farmer',
+            rem.animalName,
+            rem.title,
+            dueLabel
+          ).then((alertItem) => {
+            setForegroundToast(alertItem);
+          }).catch((err) => console.warn('Auto vaccination alert note:', err));
+        }
+      }
+    });
+  }, [reminders, user?.id]);
+
+  // Automated Urgent Vet Response Push Notification Alert Scanner
+  useEffect(() => {
+    if (vetRequests.length === 0) return;
+
+    const vetNotifiedKey = 'pashucare_vet_notified';
+    let notifiedVetMap: Record<string, string> = {};
+    try {
+      notifiedVetMap = JSON.parse(localStorage.getItem(vetNotifiedKey) || '{}');
+    } catch {}
+
+    vetRequests.forEach((req) => {
+      const isResponded = req.status === 'Accepted' || req.status === 'Completed' || Boolean(req.vetNotes);
+      const stateSignature = `${req.id}_${req.status}_${req.vetNotes || ''}`;
+
+      if (isResponded && notifiedVetMap[req.id] !== stateSignature) {
+        notifiedVetMap[req.id] = stateSignature;
+        try {
+          localStorage.setItem(vetNotifiedKey, JSON.stringify(notifiedVetMap));
+        } catch {}
+
+        dispatchUrgentVetResponseAlert(
+          user?.id || 'farmer',
+          req.animalName,
+          req.assignedVetName || 'Field Veterinarian',
+          req.vetNotes || 'Doctor accepted consultation and supplied clinical instructions.',
+          req.status
+        ).then((alertItem) => {
+          setForegroundToast(alertItem);
+        }).catch((err) => console.warn('Auto vet response alert note:', err));
+      }
+    });
+  }, [vetRequests, user?.id]);
+
+  // Enable Push Notification & FCM Token Registration
+  const handleEnablePushNotifications = async () => {
+    const result = await requestPushNotificationPermission(user?.id);
+    setPushPermissionStatus(result.status);
+    if (result.status === 'granted') {
+      const welcome = await dispatchVaccinationAlert(
+        user?.id || 'farmer',
+        'PashuCare AI System',
+        'Real-time push notifications connected successfully',
+        'Active'
+      );
+      setForegroundToast(welcome);
+    }
+  };
+
+  // Trigger test vaccination reminder alert
+  const handleTestVaccinationAlert = async () => {
+    const animalName = animals[0]?.name || 'Gauri (Gir Cow)';
+    const alertItem = await dispatchVaccinationAlert(
+      user?.id || 'farmer',
+      animalName,
+      'HS + BQ Combined Booster Immunization',
+      'Tomorrow, 08:30 AM'
+    );
+    setForegroundToast(alertItem);
+  };
+
+  // Trigger test urgent vet response alert
+  const handleTestUrgentVetAlert = async () => {
+    const animalName = animals[0]?.name || 'Lakshmi (Murrah Buffalo)';
+    const alertItem = await dispatchUrgentVetResponseAlert(
+      user?.id || 'farmer',
+      animalName,
+      'Dr. Arvind Shinde (Veterinary Officer)',
+      'URGENT: Isolate animal immediately in dry shade. Administer oral rehydration fluid every 3 hours. Inspection team dispatched.',
+      'Emergency Advice'
+    );
+    setForegroundToast(alertItem);
+  };
+
+  // Notification status updates
+  const handleMarkNotificationRead = async (notifId: string) => {
+    setNotifications((prev) => prev.map((n) => (n.id === notifId ? { ...n, read: true } : n)));
+    if (user?.id) {
+      try {
+        await markNotificationAsReadInFirestore(notifId);
+      } catch {}
+    }
+  };
+
+  const handleMarkAllNotificationsRead = async () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    if (user?.id) {
+      notifications.forEach((n) => {
+        if (!n.read) {
+          markNotificationAsReadInFirestore(n.id).catch(() => {});
+        }
+      });
+    }
+  };
+
+  const handleDeleteNotification = async (notifId: string) => {
+    setNotifications((prev) => prev.filter((n) => n.id !== notifId));
+    if (user?.id) {
+      try {
+        await deleteNotificationFromFirestore(notifId);
+      } catch {}
+    }
+  };
 
   // Save User profile change upon manual registration or login
   const handleUserLogin = (loggedInUser: UserProfile) => {
@@ -441,6 +672,8 @@ export default function App() {
         onOpenAuth={handleOpenAuth}
         onSignOut={handleSignOut}
         onOpenPrivacy={() => setShowPrivacyModal(true)}
+        unreadNotificationsCount={notifications.filter((n) => !n.read).length}
+        onOpenNotifications={() => setShowNotificationCenter(true)}
       />
 
       {/* Main Content Area with Mobile Bottom Nav Clearance */}
@@ -655,6 +888,31 @@ export default function App() {
         isOpen={showPrivacyModal}
         onClose={() => setShowPrivacyModal(false)}
         onClearLocalCache={handleClearLocalCache}
+      />
+
+      {/* Foreground Real-Time Push Notification Toast */}
+      <ForegroundNotificationToast
+        notification={foregroundToast}
+        onDismiss={() => setForegroundToast(null)}
+        onNavigateTab={(tab) => setActiveTab(tab)}
+        language={language}
+      />
+
+      {/* Real-Time Push Notification Center Modal */}
+      <NotificationCenter
+        isOpen={showNotificationCenter}
+        onClose={() => setShowNotificationCenter(false)}
+        notifications={notifications}
+        unreadCount={notifications.filter((n) => !n.read).length}
+        permissionStatus={pushPermissionStatus}
+        onEnablePush={handleEnablePushNotifications}
+        onMarkAsRead={handleMarkNotificationRead}
+        onMarkAllAsRead={handleMarkAllNotificationsRead}
+        onDeleteNotification={handleDeleteNotification}
+        onTestVaccinationAlert={handleTestVaccinationAlert}
+        onTestUrgentVetAlert={handleTestUrgentVetAlert}
+        onNavigateTab={(tab) => setActiveTab(tab)}
+        language={language}
       />
     </div>
   );

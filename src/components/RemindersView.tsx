@@ -93,6 +93,12 @@ export const RemindersView: React.FC<RemindersViewProps> = ({
           <p className="text-xs sm:text-sm text-stone-500 mt-1">
             Keep your cows, buffaloes, and small ruminants safe with scheduled vaccinations and deworming.
           </p>
+          <div className="flex items-center gap-2 mt-2">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100/90 text-emerald-800 border border-emerald-200">
+              <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse" />
+              <span>FCM Push Alerts Active for Upcoming Vaccinations</span>
+            </span>
+          </div>
         </div>
 
         <button
