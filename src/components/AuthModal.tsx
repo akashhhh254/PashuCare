@@ -511,9 +511,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             {isGoogleLoading ? (
               <Loader2 className="w-4 h-4 animate-spin text-emerald-700" />
             ) : (
-              <div className="w-4 h-4 rounded-full bg-emerald-600 text-white font-black text-[10px] flex items-center justify-center">
-                G
-              </div>
+              <img
+                src="/google.svg"
+                alt="Google"
+                className="w-4.5 h-4.5 object-contain"
+                referrerPolicy="no-referrer"
+              />
             )}
             <span>{t('authGoogle')}</span>
           </button>
