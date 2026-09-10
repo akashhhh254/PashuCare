@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { AnimalProfile, Language, SupportedAnimalType } from '../types';
 import { translations, getTranslation } from '../i18n/translations';
+import { getBreedsForSpecies } from '../data/animals';
 
 interface AnimalsViewProps {
   animals: AnimalProfile[];
@@ -39,14 +40,31 @@ export const AnimalsView: React.FC<AnimalsViewProps> = ({
   const [formData, setFormData] = useState({
     name: '',
     tagId: '',
+    microchipNumber: '',
     type: 'Cow' as SupportedAnimalType,
     age: '3',
+    dateOfBirth: '',
     gender: 'Female',
+    reproductiveStatus: 'Intact',
     breed: '',
     weight: '',
     farmLocation: '',
     photoUrl: '',
+    ownerNotes: '',
   });
+
+  const availableBreeds = getBreedsForSpecies(formData.type);
+
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        setFormData((prev) => ({ ...prev, photoUrl: reader.result as string }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   const filteredAnimals = animals.filter((animal) => {
     const matchesSearch =

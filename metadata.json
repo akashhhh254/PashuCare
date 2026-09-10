@@ -1,6 +1,6 @@
 {
-  "name": "PashuCare AI",
-  "description": "Smart Animal Disease Detection & Livestock Health Assistant powered by AI vision and veterinary advisory for farmers.",
+  "name": "Pashu Saathi AI",
+  "description": "Intelligent Animal Health & Disease Assistance Platform powered by AI vision and veterinary decision support for farmers, livestock owners, and pet caretakers.",
   "requestFramePermissions": [
     "camera",
     "microphone",

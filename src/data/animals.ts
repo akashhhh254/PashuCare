@@ -272,3 +272,195 @@ export function getSymptomsForCategory(category: AnimalCategory): SymptomPreset[
     return s.applicableCategories.includes(category);
   });
 }
+
+// Species to Breed Mapping for accurate, species-linked breed selection
+export const SPECIES_BREEDS_MAP: Record<string, string[]> = {
+  cow: [
+    'Gir',
+    'Sahiwal',
+    'Red Sindhi',
+    'Tharparkar',
+    'Kankrej',
+    'Rathi',
+    'Hariana',
+    'Deoni',
+    'Holstein Friesian (HF)',
+    'Jersey',
+    'HF Crossbred',
+    'Jersey Crossbred',
+    'Desi / Indigenous Non-Descript',
+    'Mixed Breed',
+    'Other Breed'
+  ],
+  buffalo: [
+    'Murrah',
+    'Jaffarabadi',
+    'Surti',
+    'Mehsana',
+    'Nili-Ravi',
+    'Bhadawari',
+    'Pandharpuri',
+    'Nagpuri',
+    'Desi / Local Buffalo',
+    'Other Breed'
+  ],
+  goat: [
+    'Jamnapari',
+    'Boer',
+    'Osmanabadi',
+    'Sirohi',
+    'Black Bengal',
+    'Beetal',
+    'Barbari',
+    'Malabari (Tellicherry)',
+    'Sangamneri',
+    'Saanen',
+    'Desi / Local Goat',
+    'Other Breed'
+  ],
+  sheep: [
+    'Marwari',
+    'Deccani',
+    'Nellore',
+    'Madras Red',
+    'Dorper',
+    'Merino',
+    'Rambouillet',
+    'Gaddi',
+    'Desi Sheep',
+    'Other Breed'
+  ],
+  horse: [
+    'Marwari',
+    'Kathiawari',
+    'Thoroughbred',
+    'Arabian',
+    'Spiti Pony',
+    'Zanskari',
+    'Quarter Horse',
+    'Warmblood',
+    'Other Breed'
+  ],
+  donkey: [
+    'Spiti Donkey',
+    'Halari',
+    'Kachchhi',
+    'Domestic Donkey',
+    'Mule',
+    'Other'
+  ],
+  pig: [
+    'Large White Yorkshire',
+    'Landrace',
+    'Duroc',
+    'Hampshire',
+    'Ghoongroo',
+    'Niang Megha',
+    'Desi Pig',
+    'Other'
+  ],
+  chicken: [
+    'Broiler (Cobb 500 / Ross)',
+    'Commercial Layer (BV-300)',
+    'Aseel',
+    'Kadaknath',
+    'Giriraja',
+    'Rhode Island Red (RIR)',
+    'Vanashree',
+    'Gramapriya',
+    'Sonali',
+    'Desi / Country Fowl',
+    'Other Breed'
+  ],
+  duck: [
+    'Khaki Campbell',
+    'Indian Runner',
+    'Muscovy',
+    'White Pekin',
+    'Desi Duck',
+    'Other'
+  ],
+  dog: [
+    'Labrador Retriever',
+    'German Shepherd',
+    'Golden Retriever',
+    'Indian Pariah / Indie',
+    'Pug',
+    'Beagle',
+    'Rottweiler',
+    'Pomeranian / Spitz',
+    'Shih Tzu',
+    'Doberman Pinscher',
+    'Husky',
+    'Chihuahua',
+    'Cocker Spaniel',
+    'Pitbull / Bully Kutta',
+    'Mudhol Hound',
+    'Rajapalayam',
+    'Mixed Breed',
+    'Other Breed'
+  ],
+  cat: [
+    'Persian',
+    'Siamese',
+    'Bengal',
+    'Domestic Shorthair',
+    'Indie / Indian Domestic Cat',
+    'Maine Coon',
+    'British Shorthair',
+    'Ragdoll',
+    'Mixed Breed',
+    'Other Breed'
+  ],
+  rabbit: [
+    'New Zealand White',
+    'Soviet Chinchilla',
+    'Angora',
+    'Dutch Rabbit',
+    'Flemish Giant',
+    'Desi Rabbit',
+    'Other'
+  ],
+  fish: [
+    'Freshwater Guppy',
+    'Molly',
+    'Betta / Fighter Fish',
+    'Goldfish',
+    'Koi',
+    'Rohu (Labeo rohita)',
+    'Catla',
+    'Mrigal',
+    'Tilapia',
+    'Pangasius / Basa',
+    'Shrimp / Prawn',
+    'Other'
+  ],
+  parrot: [
+    'Budgerigar',
+    'Cockatiel',
+    'Lovebird',
+    'Indian Ringneck',
+    'African Grey',
+    'Macaw',
+    'Conure',
+    'Other'
+  ],
+  turtle: [
+    'Red-Eared Slider',
+    'Indian Star Tortoise',
+    'Mud Turtle',
+    'Box Turtle',
+    'Other'
+  ]
+};
+
+export function getBreedsForSpecies(speciesNameOrId: string): string[] {
+  const key = speciesNameOrId.toLowerCase().trim();
+  for (const [sKey, breeds] of Object.entries(SPECIES_BREEDS_MAP)) {
+    if (key.includes(sKey) || sKey.includes(key)) {
+      return breeds;
+    }
+  }
+  return ['Indigenous / Desi', 'Crossbred', 'Purebred', 'Mixed Breed', 'Unknown', 'Other Breed'];
+}
+

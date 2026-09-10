@@ -1,534 +1,489 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Sparkles } from 'lucide-react';
 import { Header } from './components/Header';
 import { BottomNav } from './components/BottomNav';
+import { Footer } from './components/Footer';
 import { OfflineIndicator } from './components/OfflineIndicator';
+import { ForegroundNotificationToast } from './components/ForegroundNotificationToast';
+import { NotificationCenter } from './components/NotificationCenter';
+import { AuthModal } from './components/AuthModal';
+import { PrivacyModal } from './components/PrivacyModal';
+import { AnimalDetailModal } from './components/AnimalDetailModal';
+import { AskAssistantModal } from './components/AskAssistantModal';
+
+// Views
+import { LandingView } from './components/LandingView';
 import { HomeView } from './components/HomeView';
 import { DashboardView } from './components/DashboardView';
 import { HealthCheckForm } from './components/HealthCheckForm';
 import { HealthReportView } from './components/HealthReportView';
 import { AnimalsView } from './components/AnimalsView';
-import { AnimalDetailModal } from './components/AnimalDetailModal';
 import { HistoryView } from './components/HistoryView';
+import { DiseaseLibraryView } from './components/DiseaseLibraryView';
 import { RemindersView } from './components/RemindersView';
 import { VeterinarianView } from './components/VeterinarianView';
-import { DiseaseLibraryView } from './components/DiseaseLibraryView';
 import { AdminView } from './components/AdminView';
-import { LandingView } from './components/LandingView';
-import { AuthModal } from './components/AuthModal';
-import { PrivacyModal } from './components/PrivacyModal';
 import { ProfileView } from './components/ProfileView';
-import { Footer } from './components/Footer';
-import { NotificationCenter } from './components/NotificationCenter';
-import { ForegroundNotificationToast } from './components/ForegroundNotificationToast';
+
 import {
   AnimalProfile,
   HealthReport,
-  Language,
   Reminder,
-  UserProfile,
   VeterinarianRequest,
+  UserProfile,
+  Language,
   PushNotificationItem,
-  PushPermissionStatus
+  PushPermissionStatus,
 } from './types';
-import { translations, getTranslation } from './i18n/translations';
+
 import {
-  logOutFromFirebase,
   onAuthUserChanged,
   getUserProfileFromFirestore,
+  handleRedirectAuthResult,
+  logOutFromFirebase,
   subscribeToAnimals,
-  subscribeToReports,
-  subscribeToReminders,
-  subscribeToVetRequests,
   addAnimalToFirestore,
+  updateAnimalInFirestore,
   deleteAnimalFromFirestore,
+  subscribeToReports,
   addReportToFirestore,
   deleteReportFromFirestore,
+  subscribeToReminders,
   addReminderToFirestore,
   toggleReminderInFirestore,
   deleteReminderFromFirestore,
+  subscribeToVetRequests,
   addVetRequestToFirestore,
-  handleRedirectAuthResult,
-  syncUserProfileToFirestore,
-  requestPushNotificationPermission,
-  subscribeToForegroundFCM,
   subscribeToNotifications,
+  addNotificationToFirestore,
   markNotificationAsReadInFirestore,
   deleteNotificationFromFirestore,
+  requestPushNotificationPermission,
+  subscribeToForegroundFCM,
   dispatchVaccinationAlert,
-  dispatchUrgentVetResponseAlert
+  dispatchUrgentVetResponseAlert,
 } from './lib/firebase';
 
-export default function App() {
-  // Navigation & View State
-  const [activeTab, setActiveTab] = useState<string>('home');
+export const App: React.FC = () => {
+  // 1. Language State
   const [language, setLanguage] = useState<Language>(() => {
-    return (localStorage.getItem('pashucare_lang') as Language) || 'en';
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('pashucare_lang') as Language;
+      if (saved && (saved === 'en' || saved === 'hi' || saved === 'mr')) {
+        return saved;
+      }
+    }
+    return 'en';
   });
 
-  // User Authentication State (defaults to null until user manually logs in or registers)
+  const handleLanguageChange = (lang: Language) => {
+    setLanguage(lang);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pashucare_lang', lang);
+    }
+  };
+
+  // 2. User & Auth State
   const [user, setUser] = useState<UserProfile | null>(() => {
-    try {
-      const saved = localStorage.getItem('pashucare_user');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed && parsed.name !== 'Ramesh Patil' && parsed.id !== 'farmer-1') {
-          return parsed;
-        }
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('pashucare_user');
+        if (cached) return JSON.parse(cached);
+      } catch {
+        // ignore
       }
-      localStorage.removeItem('pashucare_user');
-    } catch {
-      localStorage.removeItem('pashucare_user');
     }
     return null;
   });
 
-  // Application Data States
+  // 3. Navigation State
+  const [currentTab, setCurrentTab] = useState<string>('home');
+  const [activeReport, setActiveReport] = useState<HealthReport | null>(null);
+  const [selectedAnimal, setSelectedAnimal] = useState<AnimalProfile | null>(null);
+  const [preselectedAnimalForCheck, setPreselectedAnimalForCheck] = useState<AnimalProfile | null>(null);
+  const [preselectedReportForVet, setPreselectedReportForVet] = useState<HealthReport | null>(null);
+
+  // 4. Modals State
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authInitialTab, setAuthInitialTab] = useState<'signin' | 'register'>('register');
+  const [isPrivacyModalOpen, setIsPrivacyModalOpen] = useState(false);
+  const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
+  const [isAskAssistantOpen, setIsAskAssistantOpen] = useState(false);
+  const [assistantAnimal, setAssistantAnimal] = useState<AnimalProfile | null>(null);
+
+  // 5. Data Collections State
   const [animals, setAnimals] = useState<AnimalProfile[]>([]);
   const [reports, setReports] = useState<HealthReport[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [vetRequests, setVetRequests] = useState<VeterinarianRequest[]>([]);
-
-  // Selected Detail States
-  const [selectedReport, setSelectedReport] = useState<HealthReport | null>(null);
-  const [selectedAnimal, setSelectedAnimal] = useState<AnimalProfile | null>(null);
-  const [preselectedAnimalForCheck, setPreselectedAnimalForCheck] = useState<AnimalProfile | null>(null);
-
-  // Real-time Push Notifications & FCM State
   const [notifications, setNotifications] = useState<PushNotificationItem[]>([]);
-  const [showNotificationCenter, setShowNotificationCenter] = useState<boolean>(false);
   const [foregroundToast, setForegroundToast] = useState<PushNotificationItem | null>(null);
-  const [pushPermissionStatus, setPushPermissionStatus] = useState<PushPermissionStatus>(() => {
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      return Notification.permission as PushPermissionStatus;
-    }
-    return 'unsupported';
-  });
+  const [permissionStatus, setPermissionStatus] = useState<PushPermissionStatus>('default');
 
-  // Modals
-  const [showAuthModal, setShowAuthModal] = useState(false);
-  const [authInitialTab, setAuthInitialTab] = useState<'signin' | 'register'>('register');
-  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+  // Load initial fallback data from local API backend
+  const fetchBackendData = useCallback(async (userId?: string) => {
+    try {
+      const q = userId ? `?userId=${encodeURIComponent(userId)}` : '';
+      const [animRes, repRes, remRes, vetRes] = await Promise.allSettled([
+        fetch(`/api/animals${q}`).then((r) => (r.ok ? r.json() : [])),
+        fetch(`/api/reports${q}`).then((r) => (r.ok ? r.json() : [])),
+        fetch(`/api/reminders${q}`).then((r) => (r.ok ? r.json() : [])),
+        fetch(`/api/vet-requests${q}`).then((r) => (r.ok ? r.json() : [])),
+      ]);
 
-  const handleOpenAuth = (tab: 'signin' | 'register' = 'register') => {
-    setAuthInitialTab(tab);
-    setShowAuthModal(true);
-  };
-
-  // Persist language
-  const handleLanguageChange = (lang: Language) => {
-    setLanguage(lang);
-    localStorage.setItem('pashucare_lang', lang);
-  };
-
-  // Listen to Firebase Auth state & handle mobile OAuth redirect
-  useEffect(() => {
-    // Check if returning from Google Sign-In redirect on mobile
-    handleRedirectAuthResult().then((redirectProfile) => {
-      if (redirectProfile) {
-        setUser(redirectProfile);
-        localStorage.setItem('pashucare_user', JSON.stringify(redirectProfile));
-        setShowAuthModal(false);
+      if (animRes.status === 'fulfilled' && Array.isArray(animRes.value) && animRes.value.length > 0) {
+        setAnimals((prev) => (prev.length === 0 ? animRes.value : prev));
       }
-    }).catch((e) => {
-      console.warn('Redirect auth result check notice:', e);
-    });
+      if (repRes.status === 'fulfilled' && Array.isArray(repRes.value) && repRes.value.length > 0) {
+        setReports((prev) => (prev.length === 0 ? repRes.value : prev));
+      }
+      if (remRes.status === 'fulfilled' && Array.isArray(remRes.value) && remRes.value.length > 0) {
+        setReminders((prev) => (prev.length === 0 ? remRes.value : prev));
+      }
+      if (vetRes.status === 'fulfilled' && Array.isArray(vetRes.value) && vetRes.value.length > 0) {
+        setVetRequests((prev) => (prev.length === 0 ? vetRes.value : prev));
+      }
+    } catch (e) {
+      console.warn('Initial backend fetch note:', e);
+    }
+  }, []);
 
-    const unsubscribe = onAuthUserChanged(async (fbUser) => {
+  // Handle Firebase redirect authentication results (e.g. mobile Google sign-in)
+  useEffect(() => {
+    handleRedirectAuthResult().then((profile) => {
+      if (profile) {
+        setUser(profile);
+        localStorage.setItem('pashucare_user', JSON.stringify(profile));
+      }
+    });
+  }, []);
+
+  // Subscribe to Firebase Auth state
+  useEffect(() => {
+    const unsubscribeAuth = onAuthUserChanged(async (fbUser) => {
       if (fbUser) {
         try {
-          let profile = await getUserProfileFromFirestore(fbUser.uid);
-          if (!profile) {
-            try {
-              const cachedStr = localStorage.getItem('pashucare_user');
-              if (cachedStr) {
-                const parsed = JSON.parse(cachedStr);
-                if (parsed && parsed.id === fbUser.uid) {
-                  profile = parsed;
-                }
-              }
-            } catch {}
-          }
-          if (!profile) {
-            profile = {
+          const profile = await getUserProfileFromFirestore(fbUser.uid);
+          if (profile) {
+            setUser(profile);
+            localStorage.setItem('pashucare_user', JSON.stringify(profile));
+          } else {
+            const fallbackProfile: UserProfile = {
               id: fbUser.uid,
               name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Farmer',
               email: fbUser.email || '',
               phone: fbUser.phoneNumber || '',
-              preferredLanguage: language || 'en',
-              farmName: 'My Livestock Farm',
+              preferredLanguage: language,
+              farmName: `${fbUser.displayName || 'Farmer'}'s Livestock Farm`,
               farmLocation: 'Maharashtra, India',
-              role: (fbUser.email && fbUser.email.toLowerCase().includes('admin')) ? 'admin' : 'farmer',
-              photoUrl: fbUser.photoURL || undefined,
-              createdAt: new Date().toISOString()
+              role: fbUser.email?.toLowerCase().includes('admin') ? 'admin' : 'farmer',
+              createdAt: new Date().toISOString(),
             };
-            syncUserProfileToFirestore(profile).catch((err) => {
-              console.warn('Sync user profile offline note:', err);
-            });
+            setUser(fallbackProfile);
+            localStorage.setItem('pashucare_user', JSON.stringify(fallbackProfile));
           }
-          setUser(profile);
-          localStorage.setItem('pashucare_user', JSON.stringify(profile));
-        } catch (e) {
-          console.warn('Firebase user profile retrieval notice:', e);
+        } catch {
+          // If offline, preserve cached user
+        }
+      } else {
+        const cached = localStorage.getItem('pashucare_user');
+        if (!cached) {
+          setUser(null);
         }
       }
     });
-    return () => unsubscribe();
+
+    return () => unsubscribeAuth();
   }, [language]);
 
-  // Fetch initial data from backend API as fallback
-  const refreshData = async () => {
-    try {
-      // Animals
-      const animRes = await fetch('/api/animals');
-      if (animRes.ok) {
-        const animData = await animRes.json();
-        setAnimals(animData);
-      }
-
-      // Reports
-      const repRes = await fetch('/api/reports');
-      if (repRes.ok) {
-        const repData = await repRes.json();
-        setReports(repData);
-      }
-
-      // Reminders
-      const remRes = await fetch('/api/reminders');
-      if (remRes.ok) {
-        const remData = await remRes.json();
-        setReminders(remData);
-      }
-
-      // Vet Requests
-      const vetRes = await fetch('/api/vet-requests');
-      if (vetRes.ok) {
-        const vetData = await vetRes.json();
-        setVetRequests(vetData);
-      }
-    } catch (err) {
-      console.warn('Backend API sync offline or deferred, using cached local data:', err);
-    }
-  };
-
-  // Real-time Firestore synchronization for logged-in farmers
+  // Real-time Firestore sync & API fallback for active user
   useEffect(() => {
-    if (!user?.id) {
-      refreshData();
-      return;
+    const effectiveUserId = user?.id || 'farmer-1';
+
+    // Fetch initial backend data
+    fetchBackendData(effectiveUserId);
+
+    // If user is authenticated, subscribe to Firestore real-time snapshots
+    if (user?.id) {
+      const unsubAnimals = subscribeToAnimals(user.id, (list) => {
+        if (list.length > 0) setAnimals(list);
+      });
+      const unsubReports = subscribeToReports(user.id, (list) => {
+        if (list.length > 0) setReports(list);
+      });
+      const unsubReminders = subscribeToReminders(user.id, (list) => {
+        if (list.length > 0) setReminders(list);
+      });
+      const unsubVet = subscribeToVetRequests(user.id, (list) => {
+        if (list.length > 0) setVetRequests(list);
+      });
+      const unsubNotifs = subscribeToNotifications(user.id, (list) => {
+        setNotifications(list);
+      });
+
+      return () => {
+        unsubAnimals();
+        unsubReports();
+        unsubReminders();
+        unsubVet();
+        unsubNotifs();
+      };
     }
+  }, [user?.id, fetchBackendData]);
 
-    // Subscribe in real-time to Firestore collections for this farmer
-    const unsubAnimals = subscribeToAnimals(
-      user.id,
-      (realtimeAnimals) => {
-        setAnimals(realtimeAnimals);
-      },
-      (err) => console.warn('Realtime animals sync:', err)
-    );
-
-    const unsubReports = subscribeToReports(
-      user.id,
-      (realtimeReports) => {
-        setReports(realtimeReports);
-      },
-      (err) => console.warn('Realtime reports sync:', err)
-    );
-
-    const unsubReminders = subscribeToReminders(
-      user.id,
-      (realtimeReminders) => {
-        setReminders(realtimeReminders);
-      },
-      (err) => console.warn('Realtime reminders sync:', err)
-    );
-
-    const unsubVetRequests = subscribeToVetRequests(
-      user.id,
-      (realtimeRequests) => {
-        setVetRequests(realtimeRequests);
-      },
-      (err) => console.warn('Realtime vet requests sync:', err)
-    );
-
-    // Subscribe to farmer's real-time push notifications collection
-    const unsubNotifications = subscribeToNotifications(
-      user.id,
-      (realtimeNotifications) => {
-        setNotifications(realtimeNotifications);
-        try {
-          localStorage.setItem('pashucare_notifications', JSON.stringify(realtimeNotifications));
-        } catch {}
-      },
-      (err) => console.warn('Realtime notifications sync note:', err)
-    );
-
-    // Subscribe to foreground FCM push events
-    const unsubForegroundFCM = subscribeToForegroundFCM((payload) => {
-      const item: PushNotificationItem = {
-        id: `fcm-${Date.now()}`,
-        userId: user.id,
+  // Subscribe to FCM Foreground Messages
+  useEffect(() => {
+    const unsubFCM = subscribeToForegroundFCM((payload) => {
+      const notifItem: PushNotificationItem = {
+        id: `toast-${Date.now()}`,
+        userId: user?.id || 'guest',
         title: payload.title,
         body: payload.body,
-        category: (payload.data?.category as any) || 'system',
+        category: payload.data?.category || 'general',
         read: false,
         urgent: payload.data?.urgent === 'true',
         createdAt: new Date().toISOString(),
-        data: payload.data
+        data: payload.data,
       };
-      setForegroundToast(item);
+      setForegroundToast(notifItem);
+      setNotifications((prev) => [notifItem, ...prev]);
     });
 
-    return () => {
-      unsubAnimals();
-      unsubReports();
-      unsubReminders();
-      unsubVetRequests();
-      unsubNotifications();
-      unsubForegroundFCM();
-    };
+    return () => unsubFCM();
   }, [user?.id]);
 
-  // Automated Upcoming Vaccination Push Notification Alert Scanner
+  // Check push permission status on mount
   useEffect(() => {
-    if (reminders.length === 0) return;
-
-    const today = new Date().toISOString().split('T')[0];
-    const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
-    const dayAfter = new Date(Date.now() + 172800000).toISOString().split('T')[0];
-
-    const notifiedKey = 'pashucare_vax_notified';
-    let notifiedMap: Record<string, boolean> = {};
-    try {
-      notifiedMap = JSON.parse(localStorage.getItem(notifiedKey) || '{}');
-    } catch {}
-
-    reminders.forEach((rem) => {
-      if (!rem.completed && (rem.dueDate === today || rem.dueDate === tomorrow || rem.dueDate === dayAfter)) {
-        const reminderNotifKey = `${rem.id}_${rem.dueDate}`;
-        if (!notifiedMap[reminderNotifKey]) {
-          notifiedMap[reminderNotifKey] = true;
-          try {
-            localStorage.setItem(notifiedKey, JSON.stringify(notifiedMap));
-          } catch {}
-
-          const dueLabel = rem.dueDate === today ? 'Today' : rem.dueDate === tomorrow ? 'Tomorrow' : rem.dueDate;
-          dispatchVaccinationAlert(
-            user?.id || 'farmer',
-            rem.animalName,
-            rem.title,
-            dueLabel
-          ).then((alertItem) => {
-            setForegroundToast(alertItem);
-          }).catch((err) => console.warn('Auto vaccination alert note:', err));
-        }
-      }
-    });
-  }, [reminders, user?.id]);
-
-  // Automated Urgent Vet Response Push Notification Alert Scanner
-  useEffect(() => {
-    if (vetRequests.length === 0) return;
-
-    const vetNotifiedKey = 'pashucare_vet_notified';
-    let notifiedVetMap: Record<string, string> = {};
-    try {
-      notifiedVetMap = JSON.parse(localStorage.getItem(vetNotifiedKey) || '{}');
-    } catch {}
-
-    vetRequests.forEach((req) => {
-      const isResponded = req.status === 'Accepted' || req.status === 'Completed' || Boolean(req.vetNotes);
-      const stateSignature = `${req.id}_${req.status}_${req.vetNotes || ''}`;
-
-      if (isResponded && notifiedVetMap[req.id] !== stateSignature) {
-        notifiedVetMap[req.id] = stateSignature;
-        try {
-          localStorage.setItem(vetNotifiedKey, JSON.stringify(notifiedVetMap));
-        } catch {}
-
-        dispatchUrgentVetResponseAlert(
-          user?.id || 'farmer',
-          req.animalName,
-          req.assignedVetName || 'Field Veterinarian',
-          req.vetNotes || 'Doctor accepted consultation and supplied clinical instructions.',
-          req.status
-        ).then((alertItem) => {
-          setForegroundToast(alertItem);
-        }).catch((err) => console.warn('Auto vet response alert note:', err));
-      }
-    });
-  }, [vetRequests, user?.id]);
-
-  // Enable Push Notification & FCM Token Registration
-  const handleEnablePushNotifications = async () => {
-    const result = await requestPushNotificationPermission(user?.id);
-    setPushPermissionStatus(result.status);
-    if (result.status === 'granted') {
-      const welcome = await dispatchVaccinationAlert(
-        user?.id || 'farmer',
-        'PashuCare AI System',
-        'Real-time push notifications connected successfully',
-        'Active'
-      );
-      setForegroundToast(welcome);
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      setPermissionStatus(Notification.permission as PushPermissionStatus);
     }
+  }, []);
+
+  // Navigation Helper
+  const navigateTo = (tab: string) => {
+    setCurrentTab(tab);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Trigger test vaccination reminder alert
-  const handleTestVaccinationAlert = async () => {
-    const animalName = animals[0]?.name || 'Gauri (Gir Cow)';
-    const alertItem = await dispatchVaccinationAlert(
-      user?.id || 'farmer',
-      animalName,
-      'HS + BQ Combined Booster Immunization',
-      'Tomorrow, 08:30 AM'
-    );
-    setForegroundToast(alertItem);
+  // Auth Modal Handlers
+  const handleOpenAuth = (tab: 'signin' | 'register' = 'register') => {
+    setAuthInitialTab(tab);
+    setIsAuthModalOpen(true);
   };
 
-  // Trigger test urgent vet response alert
-  const handleTestUrgentVetAlert = async () => {
-    const animalName = animals[0]?.name || 'Lakshmi (Murrah Buffalo)';
-    const alertItem = await dispatchUrgentVetResponseAlert(
-      user?.id || 'farmer',
-      animalName,
-      'Dr. Arvind Shinde (Veterinary Officer)',
-      'URGENT: Isolate animal immediately in dry shade. Administer oral rehydration fluid every 3 hours. Inspection team dispatched.',
-      'Emergency Advice'
-    );
-    setForegroundToast(alertItem);
+  const handleAuthSuccess = (authenticatedUser: UserProfile) => {
+    setUser(authenticatedUser);
+    localStorage.setItem('pashucare_user', JSON.stringify(authenticatedUser));
+    setIsAuthModalOpen(false);
   };
 
-  // Notification status updates
-  const handleMarkNotificationRead = async (notifId: string) => {
-    setNotifications((prev) => prev.map((n) => (n.id === notifId ? { ...n, read: true } : n)));
-    if (user?.id) {
-      try {
-        await markNotificationAsReadInFirestore(notifId);
-      } catch {}
-    }
-  };
-
-  const handleMarkAllNotificationsRead = async () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-    if (user?.id) {
-      notifications.forEach((n) => {
-        if (!n.read) {
-          markNotificationAsReadInFirestore(n.id).catch(() => {});
-        }
-      });
-    }
-  };
-
-  const handleDeleteNotification = async (notifId: string) => {
-    setNotifications((prev) => prev.filter((n) => n.id !== notifId));
-    if (user?.id) {
-      try {
-        await deleteNotificationFromFirestore(notifId);
-      } catch {}
-    }
-  };
-
-  // Save User profile change upon manual registration or login
-  const handleUserLogin = (loggedInUser: UserProfile) => {
-    setUser(loggedInUser);
-    localStorage.setItem('pashucare_user', JSON.stringify(loggedInUser));
-  };
-
-  // Handle user sign out
   const handleSignOut = async () => {
     try {
       await logOutFromFirebase();
-    } catch (e) {
-      console.warn('Signout notice:', e);
+    } catch {
+      // ignore
     }
-    setUser(null);
     localStorage.removeItem('pashucare_user');
+    setUser(null);
+    setCurrentTab('home');
   };
 
-  // Handle Adding Animal with Real-Time Firestore Sync
+  // Livestock Management Handlers
   const handleAddAnimal = async (animalData: Partial<AnimalProfile>) => {
-    const animalId = `anim_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    const fullAnimal: AnimalProfile = {
-      id: animalId,
-      userId: user?.id || 'anonymous',
-      name: animalData.name || 'Livestock Animal',
-      tagId: animalData.tagId || `IN-${Math.floor(1000 + Math.random() * 9000)}`,
+    const newAnimal: AnimalProfile = {
+      id: `animal-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      userId: user?.id || 'farmer-1',
+      name: animalData.name || 'Unnamed Animal',
+      tagId: animalData.tagId || `IN-${Date.now().toString().slice(-4)}`,
       type: animalData.type || 'Cow',
-      age: animalData.age || '3 years',
-      gender: animalData.gender || 'Female',
       breed: animalData.breed || 'Indigenous',
+      age: animalData.age || '3',
+      gender: (animalData.gender as 'Female' | 'Male') || 'Female',
+      weight: animalData.weight,
       farmLocation: animalData.farmLocation || user?.farmLocation || 'Maharashtra, India',
-      healthScore: animalData.healthScore ?? 90,
+      photoUrl: animalData.photoUrl,
+      healthScore: animalData.healthScore || 85,
+      lastCheckDate: new Date().toISOString().split('T')[0],
       status: animalData.status || 'Healthy',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      photoUrl: animalData.photoUrl
     };
 
-    // Optimistically update local state
-    setAnimals((prev) => [fullAnimal, ...prev]);
+    // Update local state
+    setAnimals((prev) => [newAnimal, ...prev]);
 
-    // Persist in real-time Firestore database
+    // Save to Firestore if user is authenticated
     if (user?.id) {
       try {
-        await addAnimalToFirestore(fullAnimal);
+        await addAnimalToFirestore(newAnimal);
       } catch (err) {
-        console.warn('Firestore animal write fallback:', err);
+        console.warn('Firestore animal add note:', err);
       }
     }
 
-    // Backend endpoint backup
+    // Also persist to local Express API
     try {
       await fetch('/api/animals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(fullAnimal),
+        body: JSON.stringify(newAnimal),
       });
-    } catch (err) {
-      console.error('Failed to add animal to backup API:', err);
+    } catch (e) {
+      console.warn('API animal add note:', e);
     }
   };
 
-  // Handle Deleting Animal with Real-Time Firestore Sync
+  const handleUpdateAnimal = async (updatedAnimal: AnimalProfile) => {
+    setAnimals((prev) => prev.map((a) => (a.id === updatedAnimal.id ? updatedAnimal : a)));
+    if (selectedAnimal?.id === updatedAnimal.id) {
+      setSelectedAnimal(updatedAnimal);
+    }
+
+    if (user?.id) {
+      try {
+        await updateAnimalInFirestore(updatedAnimal);
+      } catch (err) {
+        console.warn('Firestore animal update note:', err);
+      }
+    }
+
+    try {
+      await fetch(`/api/animals/${updatedAnimal.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedAnimal),
+      });
+    } catch (e) {
+      console.warn('API animal update note:', e);
+    }
+  };
+
   const handleDeleteAnimal = async (animalId: string) => {
     setAnimals((prev) => prev.filter((a) => a.id !== animalId));
+    if (selectedAnimal?.id === animalId) {
+      setSelectedAnimal(null);
+    }
+
     if (user?.id) {
       try {
         await deleteAnimalFromFirestore(animalId);
       } catch (err) {
-        console.warn('Firestore animal delete fallback:', err);
+        console.warn('Firestore animal delete note:', err);
       }
     }
+
     try {
       await fetch(`/api/animals/${animalId}`, { method: 'DELETE' });
-    } catch (err) {
-      console.error('Failed to delete animal from API:', err);
+    } catch (e) {
+      console.warn('API animal delete note:', e);
     }
   };
 
-  // Handle Adding Reminder with Real-Time Firestore Sync
-  const handleAddReminder = async (reminderData: Partial<Reminder>) => {
-    const reminderId = `rem_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    const fullReminder: Reminder = {
-      id: reminderId,
-      userId: user?.id || 'anonymous',
-      title: reminderData.title || 'Livestock Reminder',
-      animalName: reminderData.animalName || 'Livestock',
-      animalId: reminderData.animalId,
-      type: reminderData.type || 'vaccination',
-      dueDate: reminderData.dueDate || new Date().toISOString().split('T')[0],
-      completed: false,
-      notes: reminderData.notes,
-      createdAt: new Date().toISOString()
+  // Health Check & Report Handlers
+  const handleStartHealthCheck = (animal?: AnimalProfile) => {
+    if (animal) {
+      setPreselectedAnimalForCheck(animal);
+    } else {
+      setPreselectedAnimalForCheck(null);
+    }
+    setCurrentTab('check');
+  };
+
+  const handleReportGenerated = async (report: HealthReport) => {
+    const enrichedReport: HealthReport = {
+      ...report,
+      userId: user?.id || 'farmer-1',
     };
 
-    setReminders((prev) => [fullReminder, ...prev]);
+    setActiveReport(enrichedReport);
+    setReports((prev) => [enrichedReport, ...prev]);
+    setCurrentTab('report');
+
+    // Update the animal's lastCheckDate and status
+    if (enrichedReport.animalId) {
+      setAnimals((prev) =>
+        prev.map((a) =>
+          a.id === enrichedReport.animalId
+            ? {
+                ...a,
+                lastCheckDate: new Date().toISOString().split('T')[0],
+                healthScore: enrichedReport.result?.healthScore || a.healthScore,
+                status:
+                  enrichedReport.result?.riskLevel === 'Low'
+                    ? 'Healthy'
+                    : enrichedReport.result?.riskLevel === 'Emergency' || enrichedReport.result?.riskLevel === 'High'
+                    ? 'Critical'
+                    : 'Under Observation',
+                updatedAt: new Date().toISOString(),
+              }
+            : a
+        )
+      );
+    }
 
     if (user?.id) {
       try {
-        await addReminderToFirestore(fullReminder);
+        await addReportToFirestore(enrichedReport);
       } catch (err) {
-        console.warn('Firestore reminder write fallback:', err);
+        console.warn('Firestore report save note:', err);
+      }
+    }
+
+    try {
+      await fetch('/api/reports', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(enrichedReport),
+      });
+    } catch (e) {
+      console.warn('API report save note:', e);
+    }
+  };
+
+  const handleDeleteReport = async (reportId: string) => {
+    setReports((prev) => prev.filter((r) => r.id !== reportId));
+    if (activeReport?.id === reportId) {
+      setActiveReport(null);
+      setCurrentTab('history');
+    }
+
+    if (user?.id) {
+      try {
+        await deleteReportFromFirestore(reportId);
+      } catch (err) {
+        console.warn('Firestore report delete note:', err);
+      }
+    }
+
+    try {
+      await fetch(`/api/reports/${reportId}`, { method: 'DELETE' });
+    } catch (e) {
+      console.warn('API report delete note:', e);
+    }
+  };
+
+  // Reminders Handlers
+  const handleAddReminder = async (reminderData: Partial<Reminder>) => {
+    const newReminder: Reminder = {
+      id: `rem-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      userId: user?.id || 'farmer-1',
+      title: reminderData.title || 'Vaccination Reminder',
+      animalId: reminderData.animalId,
+      animalName: reminderData.animalName || 'General Herd',
+      type: reminderData.type || 'vaccination',
+      dueDate: reminderData.dueDate || new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
+      completed: false,
+      notes: reminderData.notes,
+      createdAt: new Date().toISOString(),
+    };
+
+    setReminders((prev) => [...prev, newReminder]);
+
+    if (user?.id) {
+      try {
+        await addReminderToFirestore(newReminder);
+      } catch (err) {
+        console.warn('Firestore reminder add note:', err);
       }
     }
 
@@ -536,104 +491,87 @@ export default function App() {
       await fetch('/api/reminders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(fullReminder),
+        body: JSON.stringify(newReminder),
       });
-    } catch (err) {
-      console.error('Failed to add reminder to API:', err);
+    } catch (e) {
+      console.warn('API reminder add note:', e);
     }
   };
 
-  // Handle Toggle Reminder Complete with Real-Time Firestore Sync
-  const handleToggleReminderComplete = async (reminderId: string, current: boolean) => {
+  const handleToggleReminder = async (reminderId: string, currentStatus: boolean) => {
+    const nextStatus = !currentStatus;
     setReminders((prev) =>
-      prev.map((r) => (r.id === reminderId ? { ...r, completed: !current } : r))
+      prev.map((r) => (r.id === reminderId ? { ...r, completed: nextStatus } : r))
     );
 
     if (user?.id) {
       try {
-        await toggleReminderInFirestore(reminderId, !current);
+        await toggleReminderInFirestore(reminderId, nextStatus);
       } catch (err) {
-        console.warn('Firestore reminder update fallback:', err);
+        console.warn('Firestore reminder toggle note:', err);
       }
     }
 
     try {
       await fetch(`/api/reminders/${reminderId}`, {
-        method: 'PATCH',
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ completed: !current }),
+        body: JSON.stringify({ completed: nextStatus }),
       });
-    } catch (err) {
-      console.error('Failed to update reminder:', err);
+    } catch (e) {
+      console.warn('API reminder toggle note:', e);
     }
   };
 
-  // Handle Deleting Reminder with Real-Time Firestore Sync
   const handleDeleteReminder = async (reminderId: string) => {
     setReminders((prev) => prev.filter((r) => r.id !== reminderId));
+
     if (user?.id) {
       try {
         await deleteReminderFromFirestore(reminderId);
       } catch (err) {
-        console.warn('Firestore reminder delete fallback:', err);
+        console.warn('Firestore reminder delete note:', err);
       }
     }
+
     try {
       await fetch(`/api/reminders/${reminderId}`, { method: 'DELETE' });
-    } catch (err) {
-      console.error('Failed to delete reminder:', err);
+    } catch (e) {
+      console.warn('API reminder delete note:', e);
     }
   };
 
-  // Handle Deleting Health Report with Real-Time Firestore Sync
-  const handleDeleteReport = async (reportId: string) => {
-    setReports((prev) => prev.filter((r) => r.id !== reportId));
-    if (selectedReport?.id === reportId) {
-      setSelectedReport(null);
-      setActiveTab('history');
-    }
-
-    if (user?.id) {
-      try {
-        await deleteReportFromFirestore(reportId);
-      } catch (err) {
-        console.warn('Firestore report delete fallback:', err);
-      }
-    }
-
-    try {
-      await fetch(`/api/reports/${reportId}`, { method: 'DELETE' });
-    } catch (err) {
-      console.error('Failed to delete report:', err);
-    }
+  // Veterinarian Handlers
+  const handleRequestVet = (report: HealthReport) => {
+    setPreselectedReportForVet(report);
+    setCurrentTab('vet');
   };
 
-  // Handle Submitting Vet Consultation with Real-Time Firestore Sync
   const handleSubmitVetRequest = async (requestData: Partial<VeterinarianRequest>) => {
-    const reqId = `vet_req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    const fullRequest: VeterinarianRequest = {
-      id: reqId,
-      userId: user?.id || 'anonymous',
-      userName: user?.name || requestData.userName || 'Farmer',
-      userPhone: user?.phone || requestData.userPhone || '+91 98765 43210',
+    const newRequest: VeterinarianRequest = {
+      id: `vet-req-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      userId: user?.id || 'farmer-1',
+      userName: requestData.userName || user?.name || 'Local Farmer',
+      userPhone: requestData.userPhone || user?.phone || '9876543210',
       animalId: requestData.animalId,
       animalName: requestData.animalName || 'Livestock',
       animalType: requestData.animalType || 'Cow',
       symptoms: requestData.symptoms || [],
       preferredDate: requestData.preferredDate || new Date().toISOString().split('T')[0],
-      preferredTime: requestData.preferredTime || 'Morning (9 AM - 12 PM)',
-      description: requestData.description || '',
-      status: 'Pending',
-      createdAt: new Date().toISOString()
+      preferredTime: requestData.preferredTime || 'Morning (8AM - 12PM)',
+      description: requestData.description || 'Clinical consultation requested.',
+      reportId: requestData.reportId,
+      status: requestData.status || 'Pending',
+      createdAt: new Date().toISOString(),
     };
 
-    setVetRequests((prev) => [fullRequest, ...prev]);
+    setVetRequests((prev) => [newRequest, ...prev]);
 
     if (user?.id) {
       try {
-        await addVetRequestToFirestore(fullRequest);
+        await addVetRequestToFirestore(newRequest);
       } catch (err) {
-        console.warn('Firestore vet request write fallback:', err);
+        console.warn('Firestore vet request add note:', err);
       }
     }
 
@@ -641,170 +579,229 @@ export default function App() {
       await fetch('/api/vet-requests', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(fullRequest),
+        body: JSON.stringify(newRequest),
       });
-    } catch (err) {
-      console.error('Failed to submit vet request:', err);
+    } catch (e) {
+      console.warn('API vet request add note:', e);
     }
   };
 
-  // Clear Local Cache
-  const handleClearLocalCache = () => {
-    localStorage.clear();
+  // Push Notifications Handlers
+  const handleEnablePush = async () => {
+    const res = await requestPushNotificationPermission(user?.id);
+    setPermissionStatus(res.status);
+  };
+
+  const handleMarkNotifAsRead = async (notifId: string) => {
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === notifId ? { ...n, read: true } : n))
+    );
+    if (user?.id) {
+      try {
+        await markNotificationAsReadInFirestore(notifId);
+      } catch (e) {
+        console.warn('Firestore mark read note:', e);
+      }
+    }
+  };
+
+  const handleMarkAllNotifsAsRead = async () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+  };
+
+  const handleDeleteNotification = async (notifId: string) => {
+    setNotifications((prev) => prev.filter((n) => n.id !== notifId));
+    if (user?.id) {
+      try {
+        await deleteNotificationFromFirestore(notifId);
+      } catch (e) {
+        console.warn('Firestore delete notif note:', e);
+      }
+    }
+  };
+
+  const handleTestVaccinationAlert = async () => {
+    const sampleAnimal = animals[0]?.name || 'Gauri (HF Cow)';
+    const item = await dispatchVaccinationAlert(
+      user?.id || 'farmer-1',
+      sampleAnimal,
+      'Foot & Mouth Disease (FMD) Booster',
+      new Date(Date.now() + 5 * 86400000).toLocaleDateString()
+    );
+    setNotifications((prev) => [item, ...prev]);
+    setForegroundToast(item);
+  };
+
+  const handleTestUrgentVetAlert = async () => {
+    const sampleAnimal = animals[0]?.name || 'Bhima (Murrah Buffalo)';
+    const item = await dispatchUrgentVetResponseAlert(
+      user?.id || 'farmer-1',
+      sampleAnimal,
+      'Dr. Rajesh Sharma (Veterinary Officer)',
+      'Observed symptoms indicate high risk of acute respiratory distress. Quarantine animal in shaded barn and ensure clean hydration.',
+      'Emergency Triage Active'
+    );
+    setNotifications((prev) => [item, ...prev]);
+    setForegroundToast(item);
+  };
+
+  const handleClearCache = () => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('pashucare_user');
+      localStorage.removeItem('pashucare_lang');
+    }
+    setUser(null);
+    setCurrentTab('home');
     window.location.reload();
   };
 
-  return (
-    <div className="min-h-screen flex flex-col bg-[#F9F8F6] text-stone-900 font-sans antialiased selection:bg-emerald-200">
-      
-      {/* Offline Status Bar */}
-      <OfflineIndicator language={language} />
+  const unreadNotificationsCount = notifications.filter((n) => !n.read).length;
 
-      {/* Global Application Header */}
-      <Header
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        currentTab={activeTab}
-        setCurrentTab={setActiveTab}
-        language={language}
-        setLanguage={handleLanguageChange}
-        user={user}
-        onOpenAuth={handleOpenAuth}
-        onSignOut={handleSignOut}
-        onOpenPrivacy={() => setShowPrivacyModal(true)}
-        unreadNotificationsCount={notifications.filter((n) => !n.read).length}
-        onOpenNotifications={() => setShowNotificationCenter(true)}
-      />
+  // View Router
+  const renderCurrentView = () => {
+    // If activeReport is set and tab is 'report', show report detail
+    if (currentTab === 'report' && activeReport) {
+      return (
+        <HealthReportView
+          report={activeReport}
+          language={language}
+          onBack={() => setCurrentTab('history')}
+          onRequestVet={handleRequestVet}
+        />
+      );
+    }
 
-      {/* Main Content Area with Mobile Bottom Nav Clearance */}
-      <main className="flex-1 pb-24 lg:pb-10">
-        {activeTab === 'home' && (
+    switch (currentTab) {
+      case 'home':
+        // If user is not authenticated, show LandingView with full features and account prompt
+        if (!user) {
+          return (
+            <LandingView
+              language={language}
+              onOpenAuth={handleOpenAuth}
+              onOpenPrivacy={() => setIsPrivacyModalOpen(true)}
+            />
+          );
+        }
+        // If authenticated, show HomeView with livestock status & quick triage entry points
+        return (
           <HomeView
-            language={language}
-            onStartCheck={() => {
-              setPreselectedAnimalForCheck(null);
-              setActiveTab('check');
-            }}
-            onNavigate={(tab) => setActiveTab(tab)}
-          />
-        )}
-
-        {activeTab === 'dashboard' && (
-          <DashboardView
             animals={animals}
             reports={reports}
             reminders={reminders}
-            user={user}
             language={language}
-            onNavigate={(tab) => setActiveTab(tab)}
-            onSelectReport={(report) => {
-              setSelectedReport(report);
-              setActiveTab('report');
-            }}
+            onNavigate={navigateTo}
             onSelectAnimal={(animal) => {
               setSelectedAnimal(animal);
             }}
+            onSelectReport={(report) => {
+              setActiveReport(report);
+              setCurrentTab('report');
+            }}
+            onOpenAuth={handleOpenAuth}
+            user={user}
           />
-        )}
+        );
 
-        {activeTab === 'check' && (
-          <HealthCheckForm
+      case 'dashboard':
+        return (
+          <DashboardView
+            user={user}
             animals={animals}
+            reports={reports}
+            reminders={reminders}
             language={language}
+            onNavigate={navigateTo}
+            onRunHealthCheck={handleStartHealthCheck}
+            onSelectAnimal={(animal) => {
+              setSelectedAnimal(animal);
+            }}
+            onSelectReport={(report) => {
+              setActiveReport(report);
+              setCurrentTab('report');
+            }}
+            onToggleReminder={handleToggleReminder}
+            onDeleteReminder={handleDeleteReminder}
+            onOpenAuth={handleOpenAuth}
+          />
+        );
+
+      case 'check':
+        return (
+          <HealthCheckForm
+            language={language}
+            animals={animals}
             preselectedAnimal={preselectedAnimalForCheck}
-            onAnalysisComplete={async (report) => {
-              const savedReport = {
-                ...report,
-                userId: user?.id || report.userId || 'anonymous'
-              };
-              setSelectedReport(savedReport);
-              setReports((prev) => [savedReport, ...prev]);
-              setActiveTab('report');
-              if (user?.id) {
-                try {
-                  await addReportToFirestore(savedReport);
-                } catch (err) {
-                  console.warn('Firestore report save:', err);
-                }
-              }
-            }}
+            onReportGenerated={handleReportGenerated}
+            onCancel={() => setCurrentTab('home')}
           />
-        )}
+        );
 
-        {activeTab === 'report' && (
-          <HealthReportView
-            report={selectedReport}
-            language={language}
-            onBack={() => setActiveTab('history')}
-            onRequestVet={() => {
-              setActiveTab('vet');
-            }}
-          />
-        )}
-
-        {activeTab === 'animals' && (
+      case 'animals':
+        return (
           <AnimalsView
             animals={animals}
             language={language}
             onAddAnimal={handleAddAnimal}
-            onSelectAnimal={(animal) => setSelectedAnimal(animal)}
-            onRunHealthCheck={(animal) => {
-              setPreselectedAnimalForCheck(animal);
-              setActiveTab('check');
+            onSelectAnimal={(animal) => {
+              setSelectedAnimal(animal);
             }}
+            onRunHealthCheck={handleStartHealthCheck}
           />
-        )}
+        );
 
-        {activeTab === 'history' && (
+      case 'history':
+        return (
           <HistoryView
             reports={reports}
             language={language}
             onSelectReport={(report) => {
-              setSelectedReport(report);
-              setActiveTab('report');
+              setActiveReport(report);
+              setCurrentTab('report');
             }}
             onDeleteReport={handleDeleteReport}
-            onStartNewCheck={() => {
-              setPreselectedAnimalForCheck(null);
-              setActiveTab('check');
-            }}
+            onStartNewCheck={() => handleStartHealthCheck()}
           />
-        )}
+        );
 
-        {activeTab === 'reminders' && (
+      case 'diseases':
+        return (
+          <DiseaseLibraryView
+            language={language}
+            onNavigateToCheck={() => handleStartHealthCheck()}
+          />
+        );
+
+      case 'reminders':
+        return (
           <RemindersView
             reminders={reminders}
             animals={animals}
             language={language}
             onAddReminder={handleAddReminder}
-            onToggleComplete={handleToggleReminderComplete}
+            onToggleComplete={handleToggleReminder}
             onDeleteReminder={handleDeleteReminder}
           />
-        )}
+        );
 
-        {activeTab === 'vet' && (
+      case 'vet':
+        return (
           <VeterinarianView
             animals={animals}
             reports={reports}
             user={user}
             language={language}
-            preselectedReport={selectedReport}
+            preselectedReport={preselectedReportForVet}
             onSubmitVetRequest={handleSubmitVetRequest}
             pendingRequests={vetRequests}
           />
-        )}
+        );
 
-        {activeTab === 'diseases' && (
-          <DiseaseLibraryView
-            language={language}
-            onNavigateToCheck={() => {
-              setPreselectedAnimalForCheck(null);
-              setActiveTab('check');
-            }}
-          />
-        )}
+      case 'admin':
+        return <AdminView language={language} />;
 
-        {activeTab === 'profile' && (
+      case 'profile':
+        return (
           <ProfileView
             user={user}
             animals={animals}
@@ -814,44 +811,120 @@ export default function App() {
             onLanguageChange={handleLanguageChange}
             onOpenAuth={handleOpenAuth}
             onSignOut={handleSignOut}
-            onOpenPrivacy={() => setShowPrivacyModal(true)}
-            onNavigate={(tab) => setActiveTab(tab)}
-            onClearCache={handleClearLocalCache}
+            onOpenPrivacy={() => setIsPrivacyModalOpen(true)}
+            onNavigate={navigateTo}
+            onClearCache={handleClearCache}
           />
-        )}
+        );
 
-        {activeTab === 'admin' && (
-          <AdminView language={language} />
-        )}
-
-        {activeTab === 'landing' && (
-          <LandingView
+      default:
+        return (
+          <HomeView
+            animals={animals}
+            reports={reports}
+            reminders={reminders}
             language={language}
+            onNavigate={navigateTo}
+            onSelectAnimal={(animal) => setSelectedAnimal(animal)}
+            onSelectReport={(report) => {
+              setActiveReport(report);
+              setCurrentTab('report');
+            }}
             onOpenAuth={handleOpenAuth}
-            onOpenPrivacy={() => setShowPrivacyModal(true)}
+            user={user}
           />
-        )}
+        );
+    }
+  };
+
+  return (
+    <div id="pashucare-app" className="min-h-screen bg-stone-100 text-stone-900 flex flex-col font-sans antialiased selection:bg-emerald-200 selection:text-emerald-900">
+      {/* Top Navigation Header */}
+      <Header
+        language={language}
+        user={user}
+        onLanguageChange={handleLanguageChange}
+        onNavigate={navigateTo}
+        onOpenAuth={handleOpenAuth}
+        onSignOut={handleSignOut}
+        unreadNotificationsCount={unreadNotificationsCount}
+        onOpenNotifications={() => setIsNotificationCenterOpen(true)}
+        onOpenPrivacy={() => setIsPrivacyModalOpen(true)}
+      />
+
+      {/* Main Viewport Container */}
+      <main className="flex-1 w-full pb-20 md:pb-8">
+        {renderCurrentView()}
       </main>
 
-      {/* Global Rich Livestock & Helpline Footer */}
+      {/* App Footer */}
       <Footer
         language={language}
         user={user}
-        onNavigate={(tab) => setActiveTab(tab)}
+        onNavigate={navigateTo}
         onOpenAuth={handleOpenAuth}
-        onOpenPrivacy={() => setShowPrivacyModal(true)}
+        onOpenPrivacy={() => setIsPrivacyModalOpen(true)}
       />
 
-      {/* Mobile Bottom Navigation */}
+      {/* Bottom Navigation for Mobile Devices */}
       <BottomNav
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        currentTab={activeTab}
-        setCurrentTab={setActiveTab}
+        currentTab={currentTab}
+        language={language}
+        onNavigate={navigateTo}
+        onOpenAuth={handleOpenAuth}
+        user={user}
+        unreadNotificationsCount={unreadNotificationsCount}
+        onOpenNotifications={() => setIsNotificationCenterOpen(true)}
+      />
+
+      {/* Floating Ask Pashu Saathi AI Assistant Button */}
+      <button
+        id="btn-floating-ask-ai"
+        onClick={() => {
+          setAssistantAnimal(null);
+          setIsAskAssistantOpen(true);
+        }}
+        className="fixed bottom-20 md:bottom-8 right-4 md:right-8 z-40 flex items-center gap-2 px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-full shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5 active:translate-y-0 font-medium text-sm border border-emerald-400"
+        title={language === 'hi' ? 'पशू साथी AI सहायक से पूछें' : language === 'mr' ? 'पशू साथी AI सहाय्यकाला विचारा' : 'Ask Pashu Saathi AI Assistant'}
+      >
+        <Sparkles className="w-5 h-5 text-amber-300" />
+        <span className="font-semibold">
+          {language === 'hi' ? 'AI सहायक' : language === 'mr' ? 'AI सहाय्यक' : 'AI Assistant'}
+        </span>
+      </button>
+
+      {/* Real-time Foreground Push Notification Banner / Toast */}
+      <ForegroundNotificationToast
+        notification={foregroundToast}
+        onDismiss={() => setForegroundToast(null)}
+        onNavigateTab={(tab) => {
+          setForegroundToast(null);
+          navigateTo(tab);
+        }}
         language={language}
       />
 
-      {/* Animal Detail & Timeline Modal */}
+      {/* Push Notification Drawer / Center */}
+      <NotificationCenter
+        isOpen={isNotificationCenterOpen}
+        onClose={() => setIsNotificationCenterOpen(false)}
+        notifications={notifications}
+        unreadCount={unreadNotificationsCount}
+        permissionStatus={permissionStatus}
+        onEnablePush={handleEnablePush}
+        onMarkAsRead={handleMarkNotifAsRead}
+        onMarkAllAsRead={handleMarkAllNotifsAsRead}
+        onDeleteNotification={handleDeleteNotification}
+        onTestVaccinationAlert={handleTestVaccinationAlert}
+        onTestUrgentVetAlert={handleTestUrgentVetAlert}
+        onNavigateTab={(tab) => {
+          setIsNotificationCenterOpen(false);
+          navigateTo(tab);
+        }}
+        language={language}
+      />
+
+      {/* Animal Detail Modal */}
       {selectedAnimal && (
         <AnimalDetailModal
           animal={selectedAnimal}
@@ -859,57 +932,58 @@ export default function App() {
           language={language}
           onClose={() => setSelectedAnimal(null)}
           onRunHealthCheck={(animal) => {
-            setPreselectedAnimalForCheck(animal);
-            setActiveTab('check');
+            setSelectedAnimal(null);
+            handleStartHealthCheck(animal);
           }}
           onSelectReport={(report) => {
-            setSelectedReport(report);
-            setActiveTab('report');
+            setSelectedAnimal(null);
+            setActiveReport(report);
+            setCurrentTab('report');
           }}
-          onDeleteAnimal={handleDeleteAnimal}
+          onDeleteAnimal={(animalId) => {
+            handleDeleteAnimal(animalId);
+          }}
+          onUpdateAnimal={handleUpdateAnimal}
+          onAskAI={(animal) => {
+            setAssistantAnimal(animal);
+            setIsAskAssistantOpen(true);
+          }}
         />
       )}
 
-      {/* Sign In / Auth Modal */}
+      {/* Pashu Saathi AI Clinical Assistant Modal */}
+      {isAskAssistantOpen && (
+        <AskAssistantModal
+          language={language}
+          selectedAnimal={assistantAnimal}
+          activeReport={activeReport}
+          onClose={() => {
+            setIsAskAssistantOpen(false);
+            setAssistantAnimal(null);
+          }}
+        />
+      )}
+
+      {/* Farmer Authentication Modal */}
       <AuthModal
-        isOpen={showAuthModal}
+        isOpen={isAuthModalOpen}
+        language={language}
         initialTab={authInitialTab}
-        language={language}
-        onClose={() => setShowAuthModal(false)}
-        onSuccess={handleUserLogin}
+        onClose={() => setIsAuthModalOpen(false)}
+        onSuccess={handleAuthSuccess}
       />
 
-      {/* Privacy & Medical Charter Modal */}
+      {/* Privacy, Trust & Clinical Boundaries Charter Modal */}
       <PrivacyModal
-        isOpen={showPrivacyModal}
-        onClose={() => setShowPrivacyModal(false)}
-        onClearLocalCache={handleClearLocalCache}
+        isOpen={isPrivacyModalOpen}
+        onClose={() => setIsPrivacyModalOpen(false)}
+        onClearLocalCache={handleClearCache}
       />
 
-      {/* Foreground Real-Time Push Notification Toast */}
-      <ForegroundNotificationToast
-        notification={foregroundToast}
-        onDismiss={() => setForegroundToast(null)}
-        onNavigateTab={(tab) => setActiveTab(tab)}
-        language={language}
-      />
-
-      {/* Real-Time Push Notification Center Modal */}
-      <NotificationCenter
-        isOpen={showNotificationCenter}
-        onClose={() => setShowNotificationCenter(false)}
-        notifications={notifications}
-        unreadCount={notifications.filter((n) => !n.read).length}
-        permissionStatus={pushPermissionStatus}
-        onEnablePush={handleEnablePushNotifications}
-        onMarkAsRead={handleMarkNotificationRead}
-        onMarkAllAsRead={handleMarkAllNotificationsRead}
-        onDeleteNotification={handleDeleteNotification}
-        onTestVaccinationAlert={handleTestVaccinationAlert}
-        onTestUrgentVetAlert={handleTestUrgentVetAlert}
-        onNavigateTab={(tab) => setActiveTab(tab)}
-        language={language}
-      />
+      {/* Offline Connectivity Indicator */}
+      <OfflineIndicator />
     </div>
   );
-}
+};
+
+export default App;

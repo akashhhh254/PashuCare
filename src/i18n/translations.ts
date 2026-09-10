@@ -3,8 +3,8 @@ import { Language } from '../types';
 export const translations = {
   en: {
     // App Brand
-    appName: 'PashuCare AI',
-    appTagline: 'Smart Livestock Health & Early Disease Detection',
+    appName: 'Pashu Saathi AI',
+    appTagline: 'Intelligent Animal Health & Disease Assistance Platform',
     disclaimerShort: 'AI results are preliminary and do not replace examination or diagnosis by a qualified veterinarian.',
     disclaimerFull: 'This AI assessment is for preliminary informational purposes only and is not a substitute for diagnosis or treatment by a qualified veterinarian. If symptoms appear serious, contact a veterinarian immediately.',
 
@@ -294,8 +294,8 @@ export const translations = {
 
   hi: {
     // App Brand
-    appName: 'पशुकेयर AI',
-    appTagline: 'स्मार्ट पशु रोग पहचान और पशुधन स्वास्थ्य सहायक',
+    appName: 'पशु साथी AI',
+    appTagline: 'बुद्धिमान पशु स्वास्थ्य व रोग सहायता मंच',
     disclaimerShort: 'AI परिणाम प्रारंभिक हैं और किसी योग्य पशु चिकित्सक की जांच का विकल्प नहीं हैं।',
     disclaimerFull: 'यह AI आकलन केवल प्रारंभिक जानकारी के लिए है और किसी योग्य पशु चिकित्सक द्वारा निदान या उपचार का विकल्प नहीं है। गंभीर लक्षण दिखने पर तुरंत डॉक्टर से संपर्क करें।',
 
@@ -585,8 +585,8 @@ export const translations = {
 
   mr: {
     // App Brand
-    appName: 'पशूकेअर AI',
-    appTagline: 'स्मार्ट जनावरांचे आजार ओळख व पशुधन आरोग्य सहाय्यक',
+    appName: 'पशू साथी AI',
+    appTagline: 'स्मार्ट जनावरांचे आरोग्य व आजार सहाय्य मंच',
     disclaimerShort: 'AI चे निष्कर्ष प्राथमिक स्वरूपाचे असून ते अधिकृत पशुवैद्यकीय तपासणीचा पर्याय नाहीत.',
     disclaimerFull: 'हे AI मूल्यांकन केवळ प्राथमिक मार्गदर्शनासाठी आहे. कोणत्याही गंभीर आजारासाठी त्वरित मान्यताप्राप्त पशुवैद्यकीय अधिकाऱ्यांशी संपर्क साधावा.',
 

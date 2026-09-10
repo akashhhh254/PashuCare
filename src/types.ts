@@ -117,21 +117,100 @@ export interface HealthReport {
   vetConsultationRequested?: boolean;
 }
 
+export interface VaccinationRecord {
+  id: string;
+  vaccineName: string;
+  dateAdministered: string;
+  nextDueDate?: string;
+  veterinarian?: string;
+  batchNumber?: string;
+  notes?: string;
+}
+
+export interface DewormingRecord {
+  id: string;
+  productName: string;
+  dateAdministered: string;
+  nextDueDate?: string;
+  dosage?: string;
+  notes?: string;
+}
+
+export interface TreatmentRecord {
+  id: string;
+  medicationName: string;
+  reason: string;
+  startDate: string;
+  endDate?: string;
+  prescribingVet?: string;
+  dosageInstructions?: string;
+  withdrawalPeriodDays?: number; // Food safety: milk/meat withdrawal
+  notes?: string;
+}
+
+export interface WeightRecord {
+  id: string;
+  date: string;
+  weight: number;
+  unit: 'kg' | 'lbs';
+  notes?: string;
+}
+
+export interface VetVisitRecord {
+  id: string;
+  visitDate: string;
+  clinicOrVet: string;
+  reason: string;
+  clinicalFindings?: string;
+  officialDiagnosis?: string; // Clear distinction from AI possibilities
+  prescribedPlan?: string;
+  followUpDate?: string;
+  notes?: string;
+}
+
+export interface HealthTimelineEvent {
+  id: string;
+  date: string;
+  type: 'creation' | 'vaccination' | 'deworming' | 'treatment' | 'weight' | 'vet_visit' | 'ai_analysis' | 'health_alert';
+  title: string;
+  description: string;
+  severity?: 'normal' | 'attention' | 'critical';
+  referenceId?: string;
+}
+
 export interface AnimalProfile {
   id: string;
   userId: string;
   name: string;
   tagId: string; // e.g. "IN-MH-2024-409"
   type: SupportedAnimalType;
+  category?: AnimalCategory;
   age: string;
+  dateOfBirth?: string;
   gender: 'Female' | 'Male';
   breed: string;
   weight?: string;
+  weightUnit?: 'kg' | 'lbs';
+  colorMarkings?: string;
+  microchipNumber?: string;
+  herdId?: string;
+  acquisitionDate?: string;
+  reproductiveStatus?: 'Intact' | 'Neutered' | 'Spayed' | 'Pregnant' | 'Lactating' | 'Dry' | 'In Heat' | 'Not Applicable';
+  pregnancyDueDate?: string;
+  sterilizationStatus?: string;
   farmLocation: string;
   photoUrl?: string;
   healthScore: number;
   lastCheckDate?: string;
   status: 'Healthy' | 'Under Observation' | 'Critical';
+  ownerNotes?: string;
+  knownDiseases?: string[];
+  allergies?: string[];
+  vaccinations?: VaccinationRecord[];
+  deworming?: DewormingRecord[];
+  treatments?: TreatmentRecord[];
+  weightHistory?: WeightRecord[];
+  vetVisits?: VetVisitRecord[];
   createdAt: string;
   updatedAt: string;
 }

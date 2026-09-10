@@ -613,14 +613,32 @@ app.post('/api/animals', (req: Request, res: Response) => {
     name: req.body.name || 'Unnamed Animal',
     tagId: req.body.tagId || `TAG-${Math.floor(1000 + Math.random() * 9000)}`,
     type: req.body.type || 'Cow',
+    category: req.body.category || 'livestock',
     age: req.body.age || '3',
+    dateOfBirth: req.body.dateOfBirth || '',
     gender: req.body.gender || 'Female',
     breed: req.body.breed || 'Indigenous',
     weight: req.body.weight || '',
+    weightUnit: req.body.weightUnit || 'kg',
+    colorMarkings: req.body.colorMarkings || '',
+    microchipNumber: req.body.microchipNumber || '',
+    herdId: req.body.herdId || '',
+    acquisitionDate: req.body.acquisitionDate || '',
+    reproductiveStatus: req.body.reproductiveStatus || 'Intact',
+    pregnancyDueDate: req.body.pregnancyDueDate || '',
+    sterilizationStatus: req.body.sterilizationStatus || '',
     farmLocation: req.body.farmLocation || 'Farm Shed',
     photoUrl: req.body.photoUrl || '',
     healthScore: req.body.healthScore || 85,
     status: req.body.status || 'Healthy',
+    ownerNotes: req.body.ownerNotes || '',
+    knownDiseases: req.body.knownDiseases || [],
+    allergies: req.body.allergies || [],
+    vaccinations: req.body.vaccinations || [],
+    deworming: req.body.deworming || [],
+    treatments: req.body.treatments || [],
+    weightHistory: req.body.weightHistory || [],
+    vetVisits: req.body.vetVisits || [],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -839,6 +857,113 @@ app.get('/api/diseases', (req: Request, res: Response) => {
   res.json(initialDiseases);
 });
 
+// 8b. Contextual AI Chat Assistant ("Ask Pashu Saathi AI")
+app.post('/api/chat', async (req: Request, res: Response) => {
+  try {
+    const { message, animalContext, language = 'en', history = [] } = req.body;
+    if (!message || !message.trim()) {
+      return res.status(400).json({ success: false, message: 'Message cannot be empty.' });
+    }
+
+    const ai = getAIClient();
+    const cleanMsg = message.trim();
+    const lang = language === 'hi' ? 'hi' : language === 'mr' ? 'mr' : 'en';
+
+    let animalContextText = '';
+    if (animalContext) {
+      animalContextText = `
+CURRENT ANIMAL CONTEXT:
+- Animal Name: ${animalContext.name || 'Not specified'}
+- Species / Type: ${animalContext.type || animalContext.species || 'Animal'}
+- Breed: ${animalContext.breed || 'Not specified'}
+- Age: ${animalContext.age || 'Not specified'}
+- Gender: ${animalContext.gender || animalContext.sex || 'Not specified'}
+- Recent Status: ${animalContext.status || 'Not specified'}
+- Health Score: ${animalContext.healthScore ?? 'Not specified'}
+- Reported Symptoms / Notes: ${Array.isArray(animalContext.symptoms) ? animalContext.symptoms.join(', ') : (animalContext.symptoms || animalContext.ownerNotes || 'None')}
+`;
+    }
+
+    const systemPrompt = `You are "Pashu Saathi AI", an expert veterinary clinical intelligence and animal welfare advisor.
+You assist farmers, livestock keepers, pet owners, and animal caretakers with practical, safe, species-appropriate health guidance.
+${animalContextText}
+
+GUIDELINES:
+1. Always be supportive, objective, clear, and reassuring.
+2. Emphasize that you provide preliminary clinical decision support, NOT a replacement for an in-person licensed veterinarian.
+3. If warning signs are detected (severe breathing distress, bloat/colic, sudden collapse, seizures, severe bleeding, hypothermia), urge immediate veterinary consultation. Provide India National Livestock Helpline: 1962.
+4. Do NOT prescribe heavy antibiotics or dangerous prescription dosages. Recommend safe supportive care, hygiene, isolation if contagious, hydration, and what questions to ask the vet.
+5. Respond completely in the requested language: "${lang}" (en = English, hi = Hindi, mr = Marathi).`;
+
+    if (ai) {
+      const candidateModels = ['gemini-flash-latest', 'gemini-3.1-flash-lite', 'gemini-3.8-flash'];
+      for (const modelName of candidateModels) {
+        try {
+          const resp = await ai.models.generateContent({
+            model: modelName,
+            contents: [
+              { text: systemPrompt },
+              ...history.slice(-6).map((h: any) => ({
+                text: `${h.role === 'user' ? 'User' : 'Pashu Saathi AI'}: ${h.text}`
+              })),
+              { text: `User: ${cleanMsg}\n\nPashu Saathi AI:` }
+            ]
+          });
+          if (resp.text) {
+            return res.json({
+              success: true,
+              reply: resp.text.trim(),
+              provider: 'gemini'
+            });
+          }
+        } catch (mErr: any) {
+          console.warn(`[Pashu Saathi Chat] Model ${modelName} notice:`, mErr?.message || mErr);
+        }
+      }
+    }
+
+    // Fallback response if Gemini is unavailable
+    let fallbackReply = '';
+    const qLower = cleanMsg.toLowerCase();
+    if (lang === 'hi') {
+      if (qLower.includes('खाना') || qLower.includes('नहीं खा') || qLower.includes('भूख') || qLower.includes('eating')) {
+        fallbackReply = 'पशु के चारा न खाने (Anorexia) के कई कारण हो सकते हैं जैसे हल्का बुखार, अपच (Indigestion), या पेट में गैस/अफरा। कृपया पशु का तापमान जांचें और देखें कि क्या वह जुगाली (Rumination) कर रहा है या नहीं। यदि पशु 24 घंटे से अधिक समय से सुस्त है और पानी भी नहीं पी रहा है, तो तुरंत नजदीकी पशु चिकित्सक से संपर्क करें (हेल्पलाइन: 1962)।';
+      } else if (qLower.includes('दस्त') || qLower.includes('diarrhea') || qLower.includes('loose')) {
+        fallbackReply = 'दस्त की स्थिति में निर्जलीकरण (Dehydration) सबसे बड़ा खतरा होता है। पशु को स्वच्छ पानी में इलेक्ट्रोलाइट या ओआरएस (ORS) घोलकर दें। हरा चारा थोड़ा कम करें और सूखा चारा दें। यदि दस्त में खून या तेज दुर्गंध आ रही है, तो बिना देरी किए पशु चिकित्सक को दिखाएं।';
+      } else {
+        fallbackReply = 'पशु साथी AI: आपके पशु की स्थिति पर नजर रखें। स्वच्छ पानी, हवादार छायादार स्थान और हल्का सुपाच्य आहार दें। यदि तापमान सामान्य से अधिक है या पशु अत्यधिक सुस्त है, तो कृपया सरकारी पशु चिकित्सालय या हेल्पलाइन 1962 पर संपर्क करें।';
+      }
+    } else if (lang === 'mr') {
+      if (qLower.includes('खात नाही') || qLower.includes('चारा') || qLower.includes('eating')) {
+        fallbackReply = 'जनावराने चारा न खाणे हे ताप, पोटातील गॅस किंवा अपचनाचे लक्षण असू शकते. जनावर रवंथ करत आहे का ते तपासा. भरपूर स्वच्छ पाणी द्या आणि त्वरित स्थानिक पशुवैद्यकीय डॉक्टरांचा सल्ला घ्या (हेल्पलाईन: 1962).';
+      } else {
+        fallbackReply = 'पशु साथी AI: जनावराचे निरीक्षण करा, शरीराचे तापमान आणि हालचाली तपासा. लक्षणे जास्त वेळ राहिल्यास त्वरित पशुवैद्यकीय अधिकाऱ्यांशी संपर्क साधा.';
+      }
+    } else {
+      if (qLower.includes('eating') || qLower.includes('appetite') || qLower.includes('food')) {
+        fallbackReply = 'Loss of appetite (anorexia) can stem from fever, digestive upset, sudden feed change, or systemic infection. Check if the animal is ruminating (chewing cud) if livestock, and monitor hydration. Offer fresh, clean water and palatable feed. If accompanied by high temperature, bloat, or lethargy exceeding 24 hours, arrange an immediate veterinary visit.';
+      } else if (qLower.includes('fever') || qLower.includes('temperature') || qLower.includes('hot')) {
+        fallbackReply = 'Fever indicates the animal\'s immune response to an infection or inflammation. Keep the animal sheltered in a cool, ventilated shed or room. Do not administer human painkillers (such as paracetamol or ibuprofen) without veterinary confirmation, as some are toxic to livestock and pets. Contact a qualified veterinarian for temperature reading and targeted treatment.';
+      } else {
+        fallbackReply = 'Pashu Saathi AI is here to help support your animal\'s health. Ensure clean drinking water, adequate ventilation, and monitor vital signs closely. If symptoms persist or the animal appears distressed, consult a licensed veterinarian or call the National Livestock Helpline at 1962.';
+      }
+    }
+
+    return res.json({
+      success: true,
+      reply: fallbackReply,
+      provider: 'clinical-fallback'
+    });
+  } catch (err: any) {
+    console.error('Chat endpoint error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Unable to process chat request at this time.'
+    });
+  }
+});
+
+
 // 9. Auth endpoints (Register, Login, Google OAuth)
 app.post('/api/auth/register', (req: Request, res: Response) => {
   try {
@@ -958,6 +1083,51 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('Login error:', err);
     return res.status(500).json({ success: false, message: 'Sign in failed.' });
+  }
+});
+
+app.post('/api/auth/google', (req: Request, res: Response) => {
+  try {
+    const { id, email, name, photoUrl, preferredLanguage = 'en' } = req.body;
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Email is required for Google authentication.' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const db = readDB();
+
+    let existingUser = db.users.find(u => u.email?.toLowerCase() === cleanEmail || (id && u.id === id));
+    if (!existingUser) {
+      const displayName = name || cleanEmail.split('@')[0];
+      existingUser = {
+        id: id || `google-${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`,
+        name: displayName,
+        email: cleanEmail,
+        phone: '',
+        preferredLanguage: preferredLanguage,
+        farmName: `${displayName.split(' ')[0] || 'Farmer'}'s Dairy Farm`,
+        farmLocation: 'Maharashtra, India',
+        role: cleanEmail.includes('admin') ? 'admin' : 'farmer',
+        photoUrl: photoUrl || 'https://lh3.googleusercontent.com/a/default-user',
+        createdAt: new Date().toISOString(),
+      };
+      db.users.push(existingUser);
+    } else {
+      if (name && !existingUser.name) existingUser.name = name;
+      if (photoUrl) (existingUser as any).photoUrl = photoUrl;
+    }
+    writeDB(db);
+
+    const { password: _, ...safeUser } = existingUser;
+    return res.json({
+      success: true,
+      user: safeUser,
+      token: `pashu_token_${existingUser.id}`,
+      message: 'Signed in with Google successfully!'
+    });
+  } catch (err: any) {
+    console.error('Google auth server error:', err);
+    return res.status(500).json({ success: false, message: 'Google authentication failed.' });
   }
 });
 
