@@ -265,14 +265,17 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
           </div>
 
           {/* Animal Profile Overview */}
-          <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 rounded-xl bg-white border border-stone-200 text-xs sm:text-sm">
+          <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 rounded-xl bg-white border border-stone-200 text-xs sm:text-sm shadow-2xs">
             <div>
               <span className="text-stone-400 block text-[11px] font-semibold">Animal Name</span>
               <strong className="text-stone-800 font-bold">{report.animalName || 'Livestock'}</strong>
             </div>
             <div>
-              <span className="text-stone-400 block text-[11px] font-semibold">Category</span>
-              <strong className="text-stone-800 font-bold">{report.animalType}</strong>
+              <span className="text-stone-400 block text-[11px] font-semibold">Species</span>
+              <strong className="text-stone-800 font-bold">
+                {report.animalType}
+                {report.result?.strictAnalysis?.animal?.breed ? ` (${report.result.strictAnalysis.animal.breed})` : ''}
+              </strong>
             </div>
             <div>
               <span className="text-stone-400 block text-[11px] font-semibold">Reported Temp</span>
@@ -338,6 +341,102 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
               </div>
             </div>
           </div>
+
+          {/* Clinical Assessment Summary */}
+          {(result?.summary || result?.rawAIExplanation) && (
+            <div className="p-4 sm:p-5 rounded-2xl bg-stone-50 border border-stone-200 text-xs sm:text-sm text-stone-800">
+              <strong className="text-stone-900 block font-bold mb-1.5 flex items-center gap-1.5 text-sm">
+                <Info className="w-4 h-4 text-emerald-700" />
+                <span>
+                  {language === 'hi'
+                    ? 'नैदानिक मूल्यांकन सारांश (Clinical Assessment Summary)'
+                    : language === 'mr'
+                    ? 'वैद्यकीय मूल्यांकन सारांश'
+                    : 'Clinical Assessment Summary'}
+                </span>
+              </strong>
+              <p className="leading-relaxed text-stone-700 whitespace-pre-line">
+                {result?.summary || result?.rawAIExplanation}
+              </p>
+            </div>
+          )}
+
+          {/* Immediate First-Aid Actions */}
+          {((result?.immediateActions && result.immediateActions.length > 0) ||
+            ((result as any)?.immediate_actions && (result as any).immediate_actions.length > 0)) && (
+            <div className="p-4 sm:p-5 rounded-2xl bg-emerald-50/70 border border-emerald-200 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm sm:text-base font-bold text-emerald-950 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-700" />
+                  <span>
+                    {language === 'hi'
+                      ? 'तत्काल करने योग्य प्राथमिक कदम (Immediate First-Aid Steps)'
+                      : language === 'mr'
+                      ? 'तातडीने करावयाची प्राथमिक पावले'
+                      : 'Immediate First-Aid Steps'}
+                  </span>
+                </h3>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-900">
+                  Priority Care
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {(result?.immediateActions || (result as any)?.immediate_actions || []).map(
+                  (action: string, idx: number) => (
+                    <div
+                      key={idx}
+                      className="p-3 rounded-xl bg-white border border-emerald-100 text-xs sm:text-sm text-stone-800 flex items-start gap-2.5 shadow-2xs"
+                    >
+                      <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-800 font-bold text-xs flex items-center justify-center flex-shrink-0 mt-0.5">
+                        {idx + 1}
+                      </span>
+                      <span className="leading-relaxed">{action}</span>
+                    </div>
+                  )
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Critical Warning Signs */}
+          {((result?.warningSigns && result.warningSigns.length > 0) ||
+            ((result as any)?.warning_signs && (result as any).warning_signs.length > 0)) && (
+            <div className="p-4 sm:p-5 rounded-2xl bg-rose-50/80 border border-rose-200 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm sm:text-base font-bold text-rose-950 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-rose-600" />
+                  <span>
+                    {language === 'hi'
+                      ? 'गंभीर चेतावनी के संकेत (Critical Warning Signs - Emergency)'
+                      : language === 'mr'
+                      ? 'धोक्याची पूर्वसूचना व लक्षणे'
+                      : 'Critical Warning Signs (Seek Urgent Vet Help)'}
+                  </span>
+                </h3>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-200 text-rose-900">
+                  Emergency Alert
+                </span>
+              </div>
+              <p className="text-xs text-rose-800">
+                {language === 'hi'
+                  ? 'यदि पशु में निम्नलिखित में से कोई भी संकेत दिखे, तो तुरंत आपातकालीन पशु चिकित्सक से संपर्क करें:'
+                  : 'If the animal exhibits any of the following signs, seek immediate emergency veterinary assistance:'}
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {(result?.warningSigns || (result as any)?.warning_signs || []).map(
+                  (sign: string, idx: number) => (
+                    <div
+                      key={idx}
+                      className="p-2.5 rounded-xl bg-white border border-rose-100 text-xs sm:text-sm text-rose-950 flex items-center gap-2 shadow-2xs font-medium"
+                    >
+                      <span className="w-2 h-2 rounded-full bg-rose-600 flex-shrink-0" />
+                      <span>{sign}</span>
+                    </div>
+                  )
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Photo & Detected Findings */}
           {report.photoUrl && (

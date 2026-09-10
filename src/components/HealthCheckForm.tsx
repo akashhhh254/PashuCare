@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   Camera,
   Upload,
@@ -13,11 +13,18 @@ import {
   Sparkles,
   Info,
   ChevronRight,
-  Stethoscope
+  Stethoscope,
+  Clock,
+  Droplets,
+  Utensils
 } from 'lucide-react';
-import { SupportedAnimalType, Language, AnimalProfile, HealthReport } from '../types';
+import { AnimalCategory, Language, AnimalProfile, HealthReport } from '../types';
 import { translations, getTranslation } from '../i18n/translations';
 import { CameraAlignmentOverlay } from './CameraAlignmentOverlay';
+import { AnimalSelector } from './AnimalSelector';
+import { ALL_SPECIES, getSymptomsForCategory, AnimalSpeciesDef } from '../data/animals';
+import { compressImageFile } from '../utils/imageCompressor';
+import { safeFetchJson, validateAndNormalizeAIResponse } from '../utils/aiAnalysisParser';
 
 interface HealthCheckFormProps {
   language: Language;
@@ -34,18 +41,27 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
 }) => {
   const t = (key: keyof typeof translations['en']) => getTranslation(language, key);
 
-  // Form State
-  const [selectedAnimalType, setSelectedAnimalType] = useState<SupportedAnimalType>(
+  // Form State: Animal
+  const [selectedSpecies, setSelectedSpecies] = useState<string>(
     preselectedAnimal?.type || 'Cow'
   );
+  const [selectedCategory, setSelectedCategory] = useState<AnimalCategory>(
+    'livestock'
+  );
+  const [isDairyMammal, setIsDairyMammal] = useState<boolean>(true);
+  const [customSpeciesName, setCustomSpeciesName] = useState<string>('');
   const [selectedAnimalId, setSelectedAnimalId] = useState<string>(preselectedAnimal?.id || '');
   const [animalNameInput, setAnimalNameInput] = useState<string>(preselectedAnimal?.name || '');
+  const [breedInput, setBreedInput] = useState<string>(preselectedAnimal?.breed || '');
+  const [ageInput, setAgeInput] = useState<string>(preselectedAnimal?.age || '');
+  const [sexInput, setSexInput] = useState<string>('Unknown');
 
   // Photo State
   const [inputMethod, setInputMethod] = useState<'upload' | 'camera' | 'symptoms_only'>('upload');
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
   const [isCameraActive, setIsCameraActive] = useState(false);
+  const [isProcessingImage, setIsProcessingImage] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
@@ -54,8 +70,14 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
   // Symptoms State
   const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>([]);
   const [symptomDescription, setSymptomDescription] = useState<string>('');
+  
+  // Vitals & Clinical Observation State
   const [temperature, setTemperature] = useState<string>('Normal');
   const [behavior, setBehavior] = useState<string>('Active & Alert');
+  const [appetite, setAppetite] = useState<string>('Normal');
+  const [waterIntake, setWaterIntake] = useState<string>('Normal');
+  const [milkProduction, setMilkProduction] = useState<string>('Normal');
+  const [duration, setDuration] = useState<string>('1-2 days');
 
   // Voice Input State
   const [isListening, setIsListening] = useState(false);
@@ -68,27 +90,19 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
   const [analysisStep, setAnalysisStep] = useState(0);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
 
-  // Available standard symptoms
-  const symptomList = [
-    { id: 'fever', label: t('symptomFever') },
-    { id: 'appetite', label: t('symptomLossOfAppetite') },
-    { id: 'cough', label: t('symptomCoughing') },
-    { id: 'breathing', label: t('symptomDifficultyBreathing') },
-    { id: 'nasal', label: t('symptomNasalDischarge') },
-    { id: 'eye', label: t('symptomEyeDischarge') },
-    { id: 'skin', label: t('symptomSkinProblems') },
-    { id: 'hair', label: t('symptomHairLoss') },
-    { id: 'swelling', label: t('symptomSwelling') },
-    { id: 'wounds', label: t('symptomWounds') },
-    { id: 'diarrhea', label: t('symptomDiarrhea') },
-    { id: 'vomiting', label: t('symptomVomiting') },
-    { id: 'weakness', label: t('symptomWeakness') },
-    { id: 'milk', label: t('symptomReducedMilk') },
-    { id: 'walking', label: t('symptomDifficultyWalking') },
-    { id: 'behavior', label: t('symptomAbnormalBehavior') },
-    { id: 'scratching', label: t('symptomExcessiveScratching') },
-    { id: 'other', label: t('symptomOther') },
-  ];
+  // Dynamically load category-specific symptoms
+  const categorySymptoms = useMemo(() => {
+    return getSymptomsForCategory(selectedCategory);
+  }, [selectedCategory]);
+
+  // Handle species selection from AnimalSelector
+  const handleSpeciesChange = (
+    species: AnimalSpeciesDef | { id: string; name: string; category: AnimalCategory; emoji: string; isDairyMammal?: boolean }
+  ) => {
+    setSelectedSpecies(species.name);
+    setSelectedCategory(species.category);
+    setIsDairyMammal(Boolean(species.isDairyMammal));
+  };
 
   // Set up speech recognition
   useEffect(() => {
@@ -105,7 +119,6 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
       recognition.continuous = false;
       recognition.interimResults = false;
 
-      // Language code for speech
       const langCode = language === 'hi' ? 'hi-IN' : language === 'mr' ? 'mr-IN' : 'en-IN';
       recognition.lang = langCode;
 
@@ -113,7 +126,7 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
         const transcript = event.results[0][0].transcript;
         setSymptomDescription((prev) => (prev ? `${prev} ${transcript}` : transcript));
         setIsListening(false);
-        setVoiceNotice(`Added voice note: "${transcript}"`);
+        setVoiceNotice(`Added note: "${transcript}"`);
         setTimeout(() => setVoiceNotice(null), 4000);
       };
 
@@ -174,33 +187,35 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
     }
   };
 
-  // Image validation & upload handler
-  const processImageFile = (file: File) => {
+  // Image compression & upload handler
+  const processImageFile = async (file: File) => {
     setImageError(null);
+    setIsProcessingImage(true);
 
-    // Validate type
     const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
     if (!validTypes.includes(file.type)) {
       setImageError('Unsupported file format. Please upload JPG, PNG, or WebP.');
+      setIsProcessingImage(false);
       return;
     }
 
-    // Validate size (max 15MB)
-    if (file.size > 15 * 1024 * 1024) {
-      setImageError('Image file is too large. Please select a photo under 15MB.');
+    if (file.size > 25 * 1024 * 1024) {
+      setImageError('Image file is too large. Please select a photo under 25MB.');
+      setIsProcessingImage(false);
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const dataUrl = e.target?.result as string;
-      setImagePreview(dataUrl);
+    try {
+      // Compress client-side to max 1280px to avoid huge base64 payload
+      const compressedDataUrl = await compressImageFile(file, 1280, 0.82);
+      setImagePreview(compressedDataUrl);
       stopCamera();
-    };
-    reader.onerror = () => {
-      setImageError('Failed to read image file. Please try again.');
-    };
-    reader.readAsDataURL(file);
+    } catch (err: any) {
+      console.error('Image compression error:', err);
+      setImageError('Failed to process image. Please try another photo.');
+    } finally {
+      setIsProcessingImage(false);
+    }
   };
 
   // Handle Drag & Drop
@@ -211,7 +226,7 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
     }
   };
 
-  // Start Camera Stream with resilient fallbacks for mobile & desktop
+  // Start Camera Stream
   const startCamera = async () => {
     setImageError(null);
     try {
@@ -222,7 +237,6 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
             video: { facingMode: { ideal: 'environment' } },
           });
         } catch (initialErr) {
-          console.warn('FacingMode environment failed, trying standard video:', initialErr);
           stream = await navigator.mediaDevices.getUserMedia({
             video: true,
           });
@@ -239,7 +253,6 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
         }
       }
 
-      // If getUserMedia is blocked or unsupported, open native mobile camera
       cameraInputRef.current?.click();
     } catch (err: any) {
       console.warn('Camera stream error, falling back to native capture:', err);
@@ -248,7 +261,7 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
       } else {
         setImageError(
           language === 'hi'
-            ? 'कैमरा शुरू नहीं हो सका। कृपया फोटो अपलोड करें या सीधे फाइल चुनें।'
+            ? 'कैमरा शुरू नहीं हो सका। कृपया फोटो अपलोड करें।'
             : 'Unable to access device camera. Please upload an image file instead.'
         );
       }
@@ -256,14 +269,12 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
     }
   };
 
-  // Direct native mobile phone camera shutter
   const openNativeCamera = () => {
     setImageError(null);
     stopCamera();
     cameraInputRef.current?.click();
   };
 
-  // Stop Camera Stream
   const stopCamera = () => {
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach((track) => track.stop());
@@ -272,22 +283,41 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
     setIsCameraActive(false);
   };
 
-  // Capture Photo from Video
   const capturePhoto = () => {
     if (!videoRef.current) return;
-    const canvas = document.createElement('canvas');
-    canvas.width = videoRef.current.videoWidth || 640;
-    canvas.height = videoRef.current.videoHeight || 480;
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-      setImagePreview(dataUrl);
-      stopCamera();
+    try {
+      const video = videoRef.current;
+      const width = video.videoWidth || 640;
+      const height = video.videoHeight || 480;
+      
+      const maxDim = 1280;
+      let finalW = width;
+      let finalH = height;
+      if (finalW > maxDim || finalH > maxDim) {
+        if (finalW > finalH) {
+          finalH = Math.round((finalH * maxDim) / finalW);
+          finalW = maxDim;
+        } else {
+          finalW = Math.round((finalW * maxDim) / finalH);
+          finalH = maxDim;
+        }
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = finalW;
+      canvas.height = finalH;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(video, 0, 0, finalW, finalH);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+        setImagePreview(dataUrl);
+        stopCamera();
+      }
+    } catch (e) {
+      console.error('Capture photo canvas error:', e);
     }
   };
 
-  // Remove Photo
   const removePhoto = () => {
     setImagePreview(null);
     setImageError(null);
@@ -297,98 +327,132 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
     }
   };
 
-  // Run AI Health Analysis
+  // Run AI Health Analysis with strict error handling and safe JSON pipeline
   const handleRunAnalysis = async () => {
     setAnalysisError(null);
 
-    // Validation
-    if (inputMethod !== 'symptoms_only' && !imagePreview && selectedSymptoms.length === 0) {
-      setAnalysisError('Please provide either an animal photo or select at least one observed symptom.');
+    // Resolve final species name
+    const finalSpecies = (customSpeciesName.trim() || selectedSpecies).trim();
+    if (!finalSpecies) {
+      setAnalysisError('Please select or specify the animal species.');
       return;
     }
 
-    if (selectedSymptoms.length === 0 && !imagePreview && !symptomDescription) {
-      setAnalysisError('Please select observed symptoms or describe what you notice about the animal.');
+    // Validation: Require at least one symptom or image or clinical description
+    if (inputMethod !== 'symptoms_only' && !imagePreview && selectedSymptoms.length === 0 && !symptomDescription.trim()) {
+      setAnalysisError(
+        language === 'hi'
+          ? 'कृपया कम से कम एक लक्षण चुनें या पशु की फोटो अपलोड करें।'
+          : 'Please add at least one symptom or upload an animal photo before starting the analysis.'
+      );
+      return;
+    }
+
+    if (inputMethod === 'symptoms_only' && selectedSymptoms.length === 0 && !symptomDescription.trim()) {
+      setAnalysisError(
+        language === 'hi'
+          ? 'कृपया कम से कम एक लक्षण चुनें या विवरण लिखें।'
+          : 'Please select at least one symptom or write a description of what you observe.'
+      );
       return;
     }
 
     setIsAnalyzing(true);
     setAnalysisStep(0);
 
-    // Dynamic loading step simulation while API generates
     const timer1 = setTimeout(() => setAnalysisStep(1), 1200);
     const timer2 = setTimeout(() => setAnalysisStep(2), 2600);
     const timer3 = setTimeout(() => setAnalysisStep(3), 4200);
 
     try {
-      const response = await fetch('/api/analyze', {
+      const response = await safeFetchJson<{
+        success: boolean;
+        animalDetected?: boolean;
+        message?: string;
+        result?: any;
+      }>('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          image: imagePreview,
-          animalType: selectedAnimalType,
+          image: inputMethod !== 'symptoms_only' ? imagePreview : null,
+          animalType: finalSpecies,
+          animalCategory: selectedCategory,
+          animalName: animalNameInput || `${finalSpecies} #${Math.floor(100 + Math.random() * 900)}`,
+          breed: breedInput,
+          age: ageInput,
+          sex: sexInput,
           symptoms: selectedSymptoms,
           temperature: temperature,
           behavior: behavior,
+          appetite: appetite,
+          waterIntake: waterIntake,
+          milkProduction: isDairyMammal ? milkProduction : 'Not Applicable',
+          duration: duration,
           additionalInformation: symptomDescription,
           language: language,
         }),
       });
 
-      const data = await response.json();
-
       clearTimeout(timer1);
       clearTimeout(timer2);
       clearTimeout(timer3);
 
-      if (!response.ok) {
-        if (data.error === 'AI_NOT_CONFIGURED') {
-          setAnalysisError(
-            'The Gemini AI API key is not configured. Please add your GEMINI_API_KEY in the AI Studio Settings > Secrets panel.'
-          );
-        } else {
-          setAnalysisError(data.message || 'AI analysis could not be completed. Please try again.');
-        }
+      if (!response.ok || !response.data?.success) {
+        const errorMsg =
+          response.errorMessage ||
+          response.data?.message ||
+          'Unable to complete the health analysis right now. Please try again.';
+        setAnalysisError(errorMsg);
         setIsAnalyzing(false);
         return;
       }
 
-      if (data.success === false && data.animalDetected === false) {
-        setAnalysisError(data.message);
-        setIsAnalyzing(false);
-        return;
-      }
+      // Validate & normalize AI result against strict schema
+      const normalizedResult = validateAndNormalizeAIResponse(
+        response.data.result,
+        finalSpecies
+      );
 
-      // Save report via API
+      // Save report to server API
       const reportPayload = {
         animalId: selectedAnimalId || undefined,
-        animalName: animalNameInput || `${selectedAnimalType} #${Math.floor(100 + Math.random() * 900)}`,
-        animalType: selectedAnimalType,
+        animalName: animalNameInput || `${finalSpecies} #${Math.floor(100 + Math.random() * 900)}`,
+        animalType: finalSpecies,
         photoUrl: imagePreview || undefined,
         symptoms: selectedSymptoms,
         temperature: temperature,
         behavior: behavior,
         additionalInfo: symptomDescription,
-        result: data.result,
+        result: normalizedResult,
       };
 
-      const saveRes = await fetch('/api/reports', {
+      const saveRes = await safeFetchJson<HealthReport>('/api/reports', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(reportPayload),
       });
 
-      const savedReport = await saveRes.json();
       setIsAnalyzing(false);
-      onAnalysisComplete(savedReport);
+
+      if (saveRes.ok && saveRes.data) {
+        onAnalysisComplete(saveRes.data);
+      } else {
+        // Even if save API fails, show report to user immediately
+        const fallbackReport: HealthReport = {
+          id: `rep-${Date.now()}`,
+          reportCode: `PC-${Math.floor(1000 + Math.random() * 9000)}`,
+          userId: 'farmer-1',
+          createdAt: new Date().toISOString(),
+          ...reportPayload,
+        };
+        onAnalysisComplete(fallbackReport);
+      }
     } catch (err: any) {
-      console.error('Error running analysis:', err);
+      console.error('Error running health analysis:', err);
       clearTimeout(timer1);
       clearTimeout(timer2);
       clearTimeout(timer3);
-      setAnalysisError(
-        err.message || 'Network connection failed. Check your internet connection and try again.'
-      );
+      setAnalysisError('Unable to complete the health analysis right now. Please try again.');
       setIsAnalyzing(false);
     }
   };
@@ -404,9 +468,9 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
     <div className="max-w-4xl mx-auto px-4 py-6 sm:py-8">
       {/* Page Header */}
       <div className="text-center mb-8">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold mb-3">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold mb-3 shadow-2xs">
           <Stethoscope className="w-3.5 h-3.5" />
-          <span>Multimodal Veterinary Vision Assessment</span>
+          <span>Multimodal Veterinary Intelligence</span>
         </div>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-stone-900 tracking-tight">
           {t('heroHeadline')}
@@ -417,7 +481,7 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
       </div>
 
       {/* Safety Alert Banner */}
-      <div className="mb-6 p-3.5 rounded-xl bg-amber-50 border border-amber-200 flex items-start gap-3 text-xs sm:text-sm text-amber-900">
+      <div className="mb-6 p-3.5 rounded-xl bg-amber-50 border border-amber-200 flex items-start gap-3 text-xs sm:text-sm text-amber-900 shadow-2xs">
         <Info className="w-4 h-4 text-amber-700 flex-shrink-0 mt-0.5" />
         <p>
           <strong>Notice:</strong> {t('disclaimerShort')}
@@ -428,20 +492,28 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
       <div className="bg-white rounded-2xl shadow-sm border border-stone-200 overflow-hidden">
         <div className="p-6 sm:p-8 space-y-8">
           
-          {/* STEP 1: Animal Selection */}
+          {/* STEP 1: Comprehensive Animal Selection */}
           <section id="step-animal-selection">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
               <h2 className="text-base sm:text-lg font-bold text-stone-900 flex items-center gap-2">
                 <span className="w-6 h-6 rounded-full bg-emerald-700 text-white flex items-center justify-center text-xs">
                   1
                 </span>
-                {t('checkStep1Header')}
+                <span>
+                  {language === 'hi'
+                    ? 'पशु एवं प्रजाति का चयन करें (Animal Species)'
+                    : language === 'mr'
+                    ? 'जनावर व प्रजाती निवडा'
+                    : 'Select Animal Species & Profile'}
+                </span>
               </h2>
 
-              {/* Link to existing registered animal if any */}
+              {/* Link to existing registered animal profile */}
               {animals.length > 0 && (
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-stone-500 hidden sm:inline">{t('photoSelectedAnimalFromList')}</span>
+                  <span className="text-xs text-stone-500 hidden sm:inline">
+                    {language === 'hi' ? 'पंजीकृत पशु:' : 'Registered Animal:'}
+                  </span>
                   <select
                     id="select-existing-animal"
                     value={selectedAnimalId}
@@ -450,16 +522,26 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
                       setSelectedAnimalId(id);
                       const found = animals.find((a) => a.id === id);
                       if (found) {
-                        setSelectedAnimalType(found.type);
+                        setSelectedSpecies(found.type);
                         setAnimalNameInput(found.name);
+                        if (found.breed) setBreedInput(found.breed);
+                        if (found.age) setAgeInput(found.age);
+                        // find species definition to check dairy
+                        const spObj = ALL_SPECIES.find(
+                          (s) => s.name.toLowerCase() === found.type.toLowerCase()
+                        );
+                        if (spObj) {
+                          setSelectedCategory(spObj.category);
+                          setIsDairyMammal(Boolean(spObj.isDairyMammal));
+                        }
                       }
                     }}
-                    className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-stone-300 bg-stone-50 text-stone-800"
+                    className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-stone-300 bg-stone-50 text-stone-800 focus:ring-1 focus:ring-emerald-600"
                   >
                     <option value="">-- Choose registered animal --</option>
                     {animals.map((a) => (
                       <option key={a.id} value={a.id}>
-                        {a.name} ({a.type} - {a.tagId})
+                        {a.name} ({a.type} - {a.tagId || a.id.slice(0, 6)})
                       </option>
                     ))}
                   </select>
@@ -467,54 +549,76 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
               )}
             </div>
 
-            {/* Animal Category Buttons */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {(['Cow', 'Buffalo', 'Goat', 'Sheep'] as SupportedAnimalType[]).map((type) => {
-                const isSelected = selectedAnimalType === type;
-                const label =
-                  type === 'Cow'
-                    ? t('animalCow')
-                    : type === 'Buffalo'
-                    ? t('animalBuffalo')
-                    : type === 'Goat'
-                    ? t('animalGoat')
-                    : t('animalSheep');
+            {/* Modern Searchable & Categorized Animal Selector */}
+            <AnimalSelector
+              selectedSpecies={selectedSpecies}
+              customSpeciesName={customSpeciesName}
+              onSelectSpecies={handleSpeciesChange}
+              onCustomSpeciesChange={(name) => {
+                setCustomSpeciesName(name);
+                setSelectedSpecies(name || 'Custom Animal');
+              }}
+              language={language}
+            />
 
-                return (
-                  <button
-                    key={type}
-                    type="button"
-                    id={`animal-btn-${type.toLowerCase()}`}
-                    onClick={() => setSelectedAnimalType(type)}
-                    className={`p-4 rounded-xl border-2 flex flex-col items-center justify-center gap-2 transition ${
-                      isSelected
-                        ? 'border-emerald-700 bg-emerald-50 text-emerald-900 shadow-xs font-bold'
-                        : 'border-stone-200 bg-stone-50/50 hover:bg-stone-100 text-stone-700 font-medium'
-                    }`}
-                  >
-                    <span className="text-2xl">
-                      {type === 'Cow' ? '🐄' : type === 'Buffalo' ? '🐃' : type === 'Goat' ? '🐐' : '🐑'}
-                    </span>
-                    <span className="text-sm">{label}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Animal Name / Identification tag */}
-            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Animal Details: Name, Breed, Age, Sex */}
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-3 border-t border-stone-100">
               <div>
                 <label className="block text-xs font-semibold text-stone-700 mb-1">
-                  Animal Name / Identifier (Optional)
+                  {language === 'hi' ? 'पशु का नाम / पहचान (वैकल्पिक)' : 'Animal Name / ID (Optional)'}
                 </label>
                 <input
                   type="text"
                   id="animal-name-field"
-                  placeholder="e.g. Gauri, Lakshmi, Tag 409..."
+                  placeholder="e.g. Gauri, Bruno, Tag 402..."
                   value={animalNameInput}
                   onChange={(e) => setAnimalNameInput(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-stone-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-transparent"
+                  className="w-full px-3 py-2 rounded-xl border border-stone-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-transparent bg-white shadow-2xs"
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-stone-700 mb-1">
+                  {language === 'hi' ? 'नस्ल (Breed - Optional)' : 'Breed (Optional)'}
+                </label>
+                <input
+                  type="text"
+                  id="animal-breed-field"
+                  placeholder="e.g. Gir, Murrah, Labrador..."
+                  value={breedInput}
+                  onChange={(e) => setBreedInput(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-stone-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-transparent bg-white shadow-2xs"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-stone-700 mb-1">
+                  {language === 'hi' ? 'उम्र (Age - Optional)' : 'Age (Optional)'}
+                </label>
+                <input
+                  type="text"
+                  id="animal-age-field"
+                  placeholder="e.g. 2 years, 6 months..."
+                  value={ageInput}
+                  onChange={(e) => setAgeInput(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-stone-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-transparent bg-white shadow-2xs"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-stone-700 mb-1">
+                  {language === 'hi' ? 'लिंग (Sex)' : 'Sex'}
+                </label>
+                <select
+                  id="animal-sex-field"
+                  value={sexInput}
+                  onChange={(e) => setSexInput(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-stone-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-transparent bg-white shadow-2xs"
+                >
+                  <option value="Unknown">Unknown / Not Specified</option>
+                  <option value="Female">Female</option>
+                  <option value="Male">Male</option>
+                </select>
               </div>
             </div>
           </section>
@@ -539,7 +643,7 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
                   setInputMethod('upload');
                   stopCamera();
                 }}
-                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs sm:text-sm font-semibold transition ${
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition ${
                   inputMethod === 'upload'
                     ? 'bg-emerald-700 text-white shadow-xs'
                     : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
@@ -556,7 +660,7 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
                   setInputMethod('camera');
                   startCamera();
                 }}
-                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs sm:text-sm font-semibold transition ${
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition ${
                   inputMethod === 'camera'
                     ? 'bg-emerald-700 text-white shadow-xs'
                     : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
@@ -573,7 +677,7 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
                   setInputMethod('symptoms_only');
                   removePhoto();
                 }}
-                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs sm:text-sm font-semibold transition ${
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition ${
                   inputMethod === 'symptoms_only'
                     ? 'bg-emerald-700 text-white shadow-xs'
                     : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
@@ -584,7 +688,7 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
               </button>
             </div>
 
-            {/* Error in image */}
+            {/* Image Error message */}
             {imageError && (
               <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs sm:text-sm flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -595,8 +699,13 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
             {/* Photo Preview / Upload Area */}
             {inputMethod !== 'symptoms_only' && (
               <div>
-                {imagePreview ? (
-                  <div className="relative rounded-2xl overflow-hidden border border-stone-200 bg-stone-900 max-w-md mx-auto">
+                {isProcessingImage ? (
+                  <div className="p-8 text-center rounded-2xl border border-stone-200 bg-stone-50">
+                    <RefreshCw className="w-6 h-6 animate-spin text-emerald-700 mx-auto mb-2" />
+                    <p className="text-xs text-stone-600 font-medium">Optimizing photo for clinical analysis...</p>
+                  </div>
+                ) : imagePreview ? (
+                  <div className="relative rounded-2xl overflow-hidden border border-stone-200 bg-stone-900 max-w-md mx-auto shadow-md">
                     <img
                       src={imagePreview}
                       alt="Animal Preview"
@@ -671,8 +780,8 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
                       </h3>
                       <p className="text-xs text-stone-600 mt-1">
                         {language === 'hi' 
-                          ? 'प्रभावित अंग (घाव, मुंह, खुर, आंख या त्वचा) का स्पष्ट और साफ फोटो लें।'
-                          : 'Ensure good lighting on the affected area (mouth, hooves, skin lesions).'}
+                          ? 'प्रभावित अंग (घाव, मुंह, आंख, त्वचा या पूरा शरीर) का स्पष्ट फोटो लें।'
+                          : 'Ensure good lighting on the affected area (lesions, posture, eyes, skin).'}
                       </p>
                     </div>
 
@@ -768,79 +877,108 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
                 }`}
               >
                 {isListening ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
-                <span>{isListening ? t('voiceStop') : 'Voice Input (हिंदी/मराठी/EN)'}</span>
+                <span>
+                  {isListening
+                    ? t('voiceListening')
+                    : voiceSupported
+                    ? (language === 'hi' ? 'बोलकर बताएं' : language === 'mr' ? 'आवाजाने सांगा' : 'Speak Symptoms')
+                    : t('voiceUnavailable')}
+                </span>
               </button>
             </div>
 
-            {/* Voice Notice Toast */}
             {voiceNotice && (
-              <div className="mb-3 p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-emerald-600 animate-ping" />
-                <span>{voiceNotice}</span>
+              <div className="mb-3 text-xs text-emerald-700 font-semibold bg-emerald-50 p-2 rounded-lg border border-emerald-200">
+                {voiceNotice}
               </div>
             )}
 
-            {/* Symptom Chips */}
-            <div className="flex flex-wrap gap-2 mb-4">
-              {symptomList.map((symp) => {
-                const isChecked = selectedSymptoms.includes(symp.label);
-                return (
-                  <button
-                    key={symp.id}
-                    type="button"
-                    id={`symptom-chip-${symp.id}`}
-                    onClick={() => toggleSymptom(symp.label)}
-                    className={`px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition border ${
-                      isChecked
-                        ? 'bg-emerald-700 text-white border-emerald-700 shadow-xs'
-                        : 'bg-stone-50 hover:bg-stone-100 text-stone-700 border-stone-200'
-                    }`}
-                  >
-                    {isChecked ? '✓ ' : '+ '}
-                    {symp.label}
-                  </button>
-                );
-              })}
+            {/* Dynamic Symptom Chips adapted to species category */}
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-stone-500 font-medium">
+                  {language === 'hi'
+                    ? `इस श्रेणी (${selectedCategory}) के लिए प्रमुख लक्षण:`
+                    : `Common signs observed in ${selectedSpecies || 'this animal'}:`}
+                </span>
+                <span className="text-[11px] text-stone-400">
+                  {selectedSymptoms.length} {language === 'hi' ? 'चुने गए' : 'selected'}
+                </span>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {categorySymptoms.map((sym) => {
+                  const label =
+                    language === 'hi' ? sym.hindiLabel : language === 'mr' ? sym.marathiLabel : sym.label;
+                  const isSelected = selectedSymptoms.includes(label);
+
+                  return (
+                    <button
+                      key={sym.id}
+                      type="button"
+                      id={`symptom-chip-${sym.id}`}
+                      onClick={() => toggleSymptom(label)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition flex items-center gap-1.5 ${
+                        isSelected
+                          ? 'bg-emerald-700 text-white border-emerald-700 shadow-xs'
+                          : 'bg-stone-50 text-stone-700 border-stone-200 hover:bg-stone-100'
+                      }`}
+                    >
+                      {isSelected && <CheckCircle2 className="w-3 h-3 text-white" />}
+                      <span>{label}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
-            {/* Free text symptom description */}
+            {/* Symptom Text Description Area */}
             <div>
               <label className="block text-xs font-semibold text-stone-700 mb-1">
-                Describe Symptoms in Detail / Voice Output:
+                {language === 'hi'
+                  ? 'अतिरिक्त लक्षण या आपकी टिप्पणियां (Optional Description):'
+                  : 'Additional Symptoms or Farmer Notes (Optional):'}
               </label>
               <textarea
-                id="symptom-description-textarea"
+                id="symptom-description-field"
                 rows={3}
+                placeholder={
+                  language === 'hi'
+                    ? 'पशु के लक्षण विस्तार से लिखें या ऊपर दिए माइक बटन से बोलें...'
+                    : 'Describe what you noticed (e.g. onset, stool consistency, abnormal posture, discharge)...'
+                }
                 value={symptomDescription}
                 onChange={(e) => setSymptomDescription(e.target.value)}
-                placeholder={t('symptomDescriptionPlaceholder')}
-                className="w-full px-3 py-2.5 rounded-xl border border-stone-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-transparent placeholder:text-stone-400"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-transparent placeholder:text-stone-400 bg-white shadow-2xs"
               />
-              <p className="text-[11px] text-stone-500 mt-1">
-                {t('voiceInputPrompt')}
-              </p>
             </div>
           </section>
 
           <hr className="border-stone-100" />
 
-          {/* STEP 4: Vitals & Behavior */}
-          <section id="step-vitals">
+          {/* STEP 4: Clinical Vitals & Behavior */}
+          <section id="step-behavior">
             <h2 className="text-base sm:text-lg font-bold text-stone-900 flex items-center gap-2 mb-4">
               <span className="w-6 h-6 rounded-full bg-emerald-700 text-white flex items-center justify-center text-xs">
                 4
               </span>
-              {t('checkStep4Header')}
+              <span>
+                {language === 'hi'
+                  ? 'शारीरिक स्थिति एवं व्यवहार (Vitals & Demeanor)'
+                  : language === 'mr'
+                  ? 'शारीरिक स्थिती व वर्तन'
+                  : 'Clinical Vitals & Demeanor'}
+              </span>
             </h2>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
               {/* Temperature */}
               <div>
                 <label className="block text-xs font-semibold text-stone-700 mb-1.5 flex items-center gap-1.5">
                   <Thermometer className="w-3.5 h-3.5 text-stone-500" />
                   <span>{t('temperatureLabel')}</span>
                 </label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-3 gap-1.5">
                   {[
                     { id: 'Normal', label: t('temperatureNormal') },
                     { id: 'Mild Fever / Warm', label: t('temperatureWarm') },
@@ -853,7 +991,7 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
                       onClick={() => setTemperature(temp.id)}
                       className={`p-2 rounded-xl text-xs font-semibold border transition text-center ${
                         temperature === temp.id
-                          ? 'border-emerald-700 bg-emerald-50 text-emerald-900'
+                          ? 'border-emerald-700 bg-emerald-50 text-emerald-900 font-bold'
                           : 'border-stone-200 bg-stone-50 text-stone-700 hover:bg-stone-100'
                       }`}
                     >
@@ -869,7 +1007,7 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
                   <Activity className="w-3.5 h-3.5 text-stone-500" />
                   <span>{t('behaviorLabel')}</span>
                 </label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-1.5">
                   {[
                     { id: 'Active & Alert', label: t('behaviorActive') },
                     { id: 'Dull / Sluggish', label: t('behaviorDull') },
@@ -883,7 +1021,7 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
                       onClick={() => setBehavior(beh.id)}
                       className={`p-2 rounded-xl text-xs font-semibold border transition text-center ${
                         behavior === beh.id
-                          ? 'border-emerald-700 bg-emerald-50 text-emerald-900'
+                          ? 'border-emerald-700 bg-emerald-50 text-emerald-900 font-bold'
                           : 'border-stone-200 bg-stone-50 text-stone-700 hover:bg-stone-100'
                       }`}
                     >
@@ -892,16 +1030,151 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
                   ))}
                 </div>
               </div>
+
+              {/* Appetite */}
+              <div>
+                <label className="block text-xs font-semibold text-stone-700 mb-1.5 flex items-center gap-1.5">
+                  <Utensils className="w-3.5 h-3.5 text-stone-500" />
+                  <span>{language === 'hi' ? 'भूख (Appetite)' : 'Appetite'}</span>
+                </label>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {[
+                    { id: 'Normal', label: 'Normal' },
+                    { id: 'Reduced / Picky', label: 'Reduced' },
+                    { id: 'Completely off-feed / None', label: 'Off-feed' },
+                  ].map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setAppetite(item.id)}
+                      className={`p-2 rounded-xl text-xs font-semibold border transition text-center ${
+                        appetite === item.id
+                          ? 'border-emerald-700 bg-emerald-50 text-emerald-900 font-bold'
+                          : 'border-stone-200 bg-stone-50 text-stone-700 hover:bg-stone-100'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Water Intake */}
+              <div>
+                <label className="block text-xs font-semibold text-stone-700 mb-1.5 flex items-center gap-1.5">
+                  <Droplets className="w-3.5 h-3.5 text-stone-500" />
+                  <span>{language === 'hi' ? 'पानी पीना (Water Intake)' : 'Water Intake'}</span>
+                </label>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {[
+                    { id: 'Normal', label: 'Normal' },
+                    { id: 'Drinking excessively', label: 'Excessive' },
+                    { id: 'Reduced / Not drinking', label: 'Reduced' },
+                  ].map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setWaterIntake(item.id)}
+                      className={`p-2 rounded-xl text-xs font-semibold border transition text-center ${
+                        waterIntake === item.id
+                          ? 'border-emerald-700 bg-emerald-50 text-emerald-900 font-bold'
+                          : 'border-stone-200 bg-stone-50 text-stone-700 hover:bg-stone-100'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Duration of Signs */}
+              <div>
+                <label className="block text-xs font-semibold text-stone-700 mb-1.5 flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-stone-500" />
+                  <span>{language === 'hi' ? 'बीमारी की अवधि (Duration)' : 'Duration of Signs'}</span>
+                </label>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {[
+                    { id: 'Today (acute)', label: 'Today' },
+                    { id: '1-2 days', label: '1-2 days' },
+                    { id: '3-7 days', label: '3-7 days' },
+                  ].map((dur) => (
+                    <button
+                      key={dur.id}
+                      type="button"
+                      onClick={() => setDuration(dur.id)}
+                      className={`p-2 rounded-xl text-xs font-semibold border transition text-center ${
+                        duration === dur.id
+                          ? 'border-emerald-700 bg-emerald-50 text-emerald-900 font-bold'
+                          : 'border-stone-200 bg-stone-50 text-stone-700 hover:bg-stone-100'
+                      }`}
+                    >
+                      {dur.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Milk Production (Only visible if Dairy Mammal) */}
+              {isDairyMammal && (
+                <div>
+                  <label className="block text-xs font-semibold text-stone-700 mb-1.5 flex items-center gap-1.5">
+                    <span className="text-xs">🥛</span>
+                    <span>{language === 'hi' ? 'दूध उत्पादन (Milk Drop)' : 'Milk Production'}</span>
+                  </label>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {[
+                      { id: 'Normal', label: 'Normal' },
+                      { id: 'Reduced', label: 'Reduced' },
+                      { id: 'Abnormal / Blood or Clots', label: 'Abnormal' },
+                    ].map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setMilkProduction(item.id)}
+                        className={`p-2 rounded-xl text-xs font-semibold border transition text-center ${
+                          milkProduction === item.id
+                            ? 'border-emerald-700 bg-emerald-50 text-emerald-900 font-bold'
+                            : 'border-stone-200 bg-stone-50 text-stone-700 hover:bg-stone-100'
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </section>
 
-          {/* Analysis Error Display */}
+          {/* Analysis Error Display with prominent Try Again button */}
           {analysisError && (
-            <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-800 text-sm flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <strong className="block font-bold">Analysis Could Not Proceed</strong>
-                <p className="mt-0.5">{analysisError}</p>
+            <div
+              id="analysis-error-banner"
+              className="p-4 sm:p-5 rounded-2xl bg-red-50 border border-red-200 text-red-900 space-y-3 shadow-xs"
+            >
+              <div className="flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <strong className="block text-sm font-bold text-red-900">
+                    {language === 'hi' ? 'स्वास्थ्य विश्लेषण पूरा नहीं हो सका' : 'Analysis Could Not Proceed'}
+                  </strong>
+                  <p className="mt-1 text-xs sm:text-sm text-red-800 leading-relaxed">
+                    {analysisError}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pl-8 pt-1">
+                <button
+                  type="button"
+                  id="analysis-try-again-btn"
+                  onClick={handleRunAnalysis}
+                  className="px-4 py-2 rounded-xl bg-red-700 hover:bg-red-800 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>{language === 'hi' ? 'पुनः प्रयास करें (Try Again)' : 'Try Again'}</span>
+                </button>
               </div>
             </div>
           )}
@@ -913,7 +1186,7 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
               id="start-ai-analysis-btn"
               disabled={isAnalyzing}
               onClick={handleRunAnalysis}
-              className={`w-full py-3.5 px-6 rounded-xl font-bold text-white text-base shadow-md transition flex items-center justify-center gap-2 ${
+              className={`w-full py-3.5 px-6 rounded-xl font-bold text-white text-base shadow-md transition flex items-center justify-center gap-2 cursor-pointer ${
                 isAnalyzing
                   ? 'bg-stone-400 cursor-not-allowed'
                   : 'bg-emerald-700 hover:bg-emerald-800 active:scale-[0.99]'

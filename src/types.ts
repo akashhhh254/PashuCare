@@ -1,10 +1,53 @@
-export type SupportedAnimalType = 'Cow' | 'Buffalo' | 'Goat' | 'Sheep' | 'Other';
+export type AnimalCategory =
+  | 'livestock'
+  | 'poultry'
+  | 'pets'
+  | 'birds'
+  | 'wildlife'
+  | 'reptiles'
+  | 'amphibians'
+  | 'aquatic'
+  | 'other';
+
+export type SupportedAnimalType = string;
 
 export type Language = 'en' | 'hi' | 'mr';
 
 export type RiskLevel = 'Low' | 'Medium' | 'High' | 'Emergency';
 
 export type HealthStatus = 'Healthy' | 'Needs Attention' | 'High Risk' | 'Emergency';
+
+export type StrictSeverity = 'low' | 'moderate' | 'high' | 'emergency';
+
+export interface StrictAnimalProfile {
+  species: string;
+  breed?: string;
+  name?: string;
+  age?: string;
+  sex?: string;
+}
+
+export interface StrictPossibleCondition {
+  name: string;
+  confidence: number;
+  reason: string;
+}
+
+export interface StrictAIHealthAnalysis {
+  animal: StrictAnimalProfile;
+  analysis: {
+    possible_conditions: (StrictPossibleCondition | string)[];
+    observed_symptoms: string[];
+    severity: StrictSeverity;
+    confidence: number;
+    summary: string;
+  };
+  recommendations: string[];
+  immediate_actions: string[];
+  warning_signs: string[];
+  veterinarian_required: boolean;
+  emergency: boolean;
+}
 
 export interface PossibleCondition {
   name: string;
@@ -50,6 +93,11 @@ export interface AIHealthAnalysisResult {
   healthScore: number;
   disclaimer: string;
   rawAIExplanation?: string;
+  // Strict schema integration
+  strictAnalysis?: StrictAIHealthAnalysis;
+  summary?: string;
+  immediateActions?: string[];
+  warningSigns?: string[];
 }
 
 export interface HealthReport {

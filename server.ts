@@ -235,15 +235,24 @@ app.get('/api/health', (req: Request, res: Response) => {
   });
 });
 
-// 2. AI Animal Health Vision Analysis
+// 2. AI Animal Health Vision & Clinical Analysis
 app.post('/api/analyze', async (req: Request, res: Response) => {
   try {
     const {
       image,
-      animalType,
+      animalType = 'Animal',
+      animalCategory = 'livestock',
+      animalName = '',
+      breed = '',
+      age = '',
+      sex = '',
       symptoms = [],
       temperature = 'Normal',
       behavior = 'Active & Alert',
+      appetite = 'Normal',
+      waterIntake = 'Normal',
+      milkProduction = 'Not Applicable',
+      duration = '1-2 days',
       additionalInformation = '',
       language = 'en'
     } = req.body;
@@ -251,78 +260,94 @@ app.post('/api/analyze', async (req: Request, res: Response) => {
     const ai = getAIClient();
     if (!ai) {
       return res.status(400).json({
+        success: false,
         error: 'AI_NOT_CONFIGURED',
-        message: 'The Gemini AI API key is not configured. Please add your GEMINI_API_KEY in the AI Studio Settings > Secrets panel before initiating AI vision analysis.',
+        message: 'The Gemini AI API key is not configured. Please add your GEMINI_API_KEY in the AI Studio Settings > Secrets panel before initiating AI health analysis.',
       });
     }
 
     if (!image && (!symptoms || symptoms.length === 0) && !additionalInformation) {
       return res.status(400).json({
+        success: false,
         error: 'MISSING_INPUT',
-        message: 'Please provide an animal image or select at least one observed symptom to analyze.',
+        message: 'Please add at least one symptom or upload an animal photo before starting the analysis.',
       });
     }
 
-    // Build the Multimodal Prompt
-    const systemPrompt = `You are "PashuCare AI", an expert veterinary diagnostic assistant specialized in rural livestock health for Cows, Buffaloes, Goats, and Sheep.
-Your primary goal is to help farmers detect early signs of common livestock illnesses (such as Foot and Mouth Disease / FMD, Lumpy Skin Disease / LSD, Bovine Mastitis, Hemorrhagic Septicemia / HS, Black Quarter / BQ, Bloat / Tympany, Peste des Petits Ruminants / PPR, Enterotoxemia, etc.).
+    // Dynamic species context builder
+    const speciesLower = String(animalType).toLowerCase();
+    let speciesSpecificGuidance = '';
 
-CRITICAL SAFETY & MEDICAL INSTRUCTIONS:
-1. NEVER claim a 100% confirmed diagnosis. Always use cautious terms: "Possible condition", "Preliminary assessment", "AI confidence".
-2. If symptoms suggest acute, rapidly fatal or dangerous diseases (e.g. severe bloat with distended flank, throat swelling / HS, high acute fever with sudden lameness / BQ, acute respiratory distress, heavy bleeding), mark "emergency": true and "riskLevel": "Emergency" or "High".
-3. PROVIDE PRACTICAL MEDICINES & TREATMENT GUIDELINES:
-   - First-aid & immediate supplies: Provide safe first-aid remedies (e.g. Potassium Permanganate 1:1000 / Alum mouth wash for blisters, Boro-glycerine, Himax / Topicure wound sprays, ORS electrolytes for dehydration, Bloatosil / sweet mustard oil for bloat, cold compresses for mastitis).
-   - Standard Veterinary medications: List standard veterinary drugs normally prescribed or administered by the doctor for these conditions (e.g., antipyretics/painkillers like Meloxicam/Paracetamol, antihistaminics like Avil/Pheniramine, prescription antibiotic classes like Enrofloxacin/Ceftriaxone, intramammary infusions for mastitis, Calcium Borogluconate 25% for milk fever) so the farmer understands what treatment is needed.
-   - Always include a clear safety note that prescription antibiotics and injections must be administered under veterinary guidance.
-4. If an image is provided:
-   - Check if the image contains an animal (specifically cow, buffalo, goat, sheep, or livestock).
-   - If the image is a human, object, car, scenery, or unrelated animal (e.g., cat, bird, snake), set "animalDetected": false and explain in simple friendly language that only supported livestock (Cow, Buffalo, Goat, Sheep) can be analyzed.
-   - Check image quality: is it clear, well-lit, and focused on the animal or affected area?
-5. Combine image observations with user-provided symptoms, temperature, and behavior.
-6. Calculate an informational "healthScore" between 10 and 100 (100 = completely healthy, <50 = serious illness/emergency, 50-75 = needs attention/mild-moderate issue).
-7. Respond ONLY in structured JSON adhering to the exact schema specified.
-8. Translate all descriptive strings (reasons, causes, recommendations, prevention, medicines) into the requested language: "${language}" (en = English, hi = Hindi, mr = Marathi). Always keep the disease and medicine names recognizable (e.g. bilingual like "खुरपका-मुंहपका (FMD)" or "मेलोक्सिकैम (Melonex)").`;
+    if (speciesLower.includes('cow') || speciesLower.includes('bull') || speciesLower.includes('calf') || speciesLower.includes('cattle')) {
+      speciesSpecificGuidance = 'SPECIES DOMAIN: Bovine / Cattle. Evaluate against cattle pathology (FMD, Lumpy Skin Disease, Bovine Mastitis, Hemorrhagic Septicemia, Black Quarter, Theileriosis, Bloat, Milk Fever, Ketosis). Consider rumination, milk drop, mucosal ulcers, and herd biosecurity.';
+    } else if (speciesLower.includes('buffalo')) {
+      speciesSpecificGuidance = 'SPECIES DOMAIN: Water Buffalo (Bubaline). Highly susceptible to Hemorrhagic Septicemia (Gal Ghotu), heat stress, wallowing-associated parasites, Surra (Trypanosomiasis), and mastitis. Buffaloes have lower heat tolerance than cattle.';
+    } else if (speciesLower.includes('goat') || speciesLower.includes('sheep')) {
+      speciesSpecificGuidance = 'SPECIES DOMAIN: Small Ruminants (Caprine / Ovine). Evaluate for Peste des Petits Ruminants (PPR), Enterotoxemia (Pulpy Kidney), Contagious Ecthyma (Orf), Sheep/Goat Pox, Haemonchus contortus (severe anemia / bottle jaw), Foot Rot, and acute bloat.';
+    } else if (speciesLower.includes('chicken') || speciesLower.includes('poultry') || speciesLower.includes('hen') || speciesLower.includes('rooster') || speciesLower.includes('duck') || speciesLower.includes('turkey') || speciesLower.includes('quail')) {
+      speciesSpecificGuidance = 'SPECIES DOMAIN: Avian / Poultry. Evaluate for Newcastle Disease (Ranikhet), Infectious Bronchitis, Coccidiosis (bloody droppings), Fowl Pox, Fowl Cholera, Chronic Respiratory Disease (CRD), egg binding, crop stasis, and nutritional deficiencies. Do NOT apply mammal or dairy considerations.';
+    } else if (speciesLower.includes('dog') || speciesLower.includes('canine') || speciesLower.includes('puppy')) {
+      speciesSpecificGuidance = 'SPECIES DOMAIN: Canine / Dog. Evaluate for Canine Parvovirus, Distemper, Kennel Cough, Tick Fever (Ehrlichiosis), gastroenteritis, allergic dermatitis, otitis, and GDV/bloat. NEVER recommend human paracetamol/ibuprofen (highly toxic to dogs).';
+    } else if (speciesLower.includes('cat') || speciesLower.includes('feline') || speciesLower.includes('kitten')) {
+      speciesSpecificGuidance = 'SPECIES DOMAIN: Feline / Cat. Evaluate for Feline Panleukopenia, Upper Respiratory Infection (Cat Flu / Herpesvirus / Calicivirus), Feline Lower Urinary Tract Disease (FLUTD), hairballs, and ear mites. Note: Permethrin, paracetamol, and essential oils are extremely toxic to cats.';
+    } else if (speciesLower.includes('horse') || speciesLower.includes('donkey') || speciesLower.includes('mule') || speciesLower.includes('equine')) {
+      speciesSpecificGuidance = 'SPECIES DOMAIN: Equine. Evaluate for Colic (abdominal pain, rolling), Laminitis (founder), Strangles, Tetanus, respiratory heaves, and hoof thrush. Equine colic is an immediate medical emergency.';
+    } else if (speciesLower.includes('pig') || speciesLower.includes('swine')) {
+      speciesSpecificGuidance = 'SPECIES DOMAIN: Swine / Pig. Evaluate for Swine Erysipelas, African Swine Fever signs, Porcine Parvovirus, respiratory complex, and mange.';
+    } else if (speciesLower.includes('fish') || speciesLower.includes('koi') || speciesLower.includes('goldfish') || speciesLower.includes('aquatic')) {
+      speciesSpecificGuidance = 'SPECIES DOMAIN: Aquatic / Fish. Evaluate for Ich (white spot disease), Fin Rot, Swim Bladder Disorder, Dropsy, fungal infections, water ammonia/nitrite toxicity, and low dissolved oxygen.';
+    } else if (speciesLower.includes('snake') || speciesLower.includes('lizard') || speciesLower.includes('turtle') || speciesLower.includes('tortoise') || speciesLower.includes('reptile')) {
+      speciesSpecificGuidance = 'SPECIES DOMAIN: Reptilian. Evaluate for Metabolic Bone Disease (MBD / calcium-UVB deficiency), Respiratory Infection, Dysecdysis (retained shed), Mouth Rot (Infectious Stomatitis), and thermal burns.';
+    } else if (speciesLower.includes('frog') || speciesLower.includes('toad') || speciesLower.includes('amphibian')) {
+      speciesSpecificGuidance = 'SPECIES DOMAIN: Amphibian. Evaluate for Red Leg Syndrome, Chytridiomycosis, skin lesions, hydration state, and permeable skin sensitivities.';
+    } else if (animalCategory === 'wildlife' || speciesLower.includes('elephant') || speciesLower.includes('deer') || speciesLower.includes('lion') || speciesLower.includes('tiger') || speciesLower.includes('leopard') || speciesLower.includes('monkey') || speciesLower.includes('wild')) {
+      speciesSpecificGuidance = 'SPECIES DOMAIN: Wildlife / Protected Fauna. Provide preliminary clinical observations, emphasize safety precautions (do NOT touch or corner wild animals), and explicitly advise contacting the local Forest Department or certified Wildlife Veterinarians.';
+    } else {
+      speciesSpecificGuidance = `SPECIES DOMAIN: ${animalType}. Provide species-appropriate veterinary observations based on standard clinical guidelines for this animal.`;
+    }
 
-    const userPromptText = `ANIMAL TO ANALYZE:
-- Selected Animal Category: ${animalType || 'Not specified'}
-- Reported Symptoms: ${symptoms.length > 0 ? symptoms.join(', ') : 'None explicitly checked'}
-- Estimated Body Temperature: ${temperature}
-- Demeanor / Behavior: ${behavior}
-- Farmer's Observations: ${additionalInformation || 'None provided'}
+    const systemPrompt = `You are "PashuCare AI", a comprehensive, production-grade veterinary clinical intelligence assistant.
+You provide health guidance for all animal species: livestock, poultry, companion animals (dogs, cats), birds, wildlife, reptiles, amphibians, and aquatic animals.
+
+${speciesSpecificGuidance}
+
+CORE MEDICAL & SAFETY RULES:
+1. SPECIES AWARENESS: NEVER assume every animal is a cow or cattle. Calibrate your analysis strictly to the selected species (${animalType}).
+2. MEDICAL ACCURACY: NEVER state with absolute certainty that "This animal definitely has X disease." Use clinical language: "Possible condition", "Potential cause", "Differential diagnosis".
+3. SEVERITY & EMERGENCIES:
+   - Severity must be one of: "low", "moderate", "high", "emergency".
+   - If signs indicate immediate life threats (e.g. severe bloat with respiratory distress, acute choking, profuse bleeding, inability to stand, severe trauma, suspected rabies, high acute fever with collapse), set "emergency": true, "veterinarian_required": true, and "severity": "emergency".
+4. PRACTICAL & SAFE RECOMMENDATIONS:
+   - "immediate_actions": Practical, safe first-aid and supportive steps the owner/farmer can take immediately (e.g. isolate, hydration/ORS, clean bedding, warm/cool environment, antiseptic wound dressing).
+   - "recommendations": General care, feeding, biosecurity, and management guidance.
+   - "warning_signs": 2-4 critical deterioration signs that demand immediate emergency intervention.
+   - Do NOT provide dangerous prescription drug dosages. Prescription medications and antibiotics must always be supervised by a licensed veterinarian.
+5. IMAGE OBSERVATIONS:
+   - If an image is provided, identify visible physical signs (posture, skin/feather/coat integrity, eyes, oral mucosa, lesions, discharge).
+   - If the image does not show an animal (e.g., random object, food, machinery), clearly state this in the summary while still addressing reported symptoms if available.
+6. LANGUAGE:
+   - Respond in "${language}" (en = English, hi = Hindi, mr = Marathi).
+   - Ensure medical conditions are recognizable (e.g. "Foot and Mouth Disease / खुरपका-मुंहपका", "Mastitis / थनैला रोग").
+7. STRICT OUTPUT FORMAT:
+   - You MUST output exclusively valid JSON conforming strictly to the provided schema.`;
+
+    const userPromptText = `ANIMAL CLINICAL PROFILE:
+- Species: ${animalType}
+- Name / Tag ID: ${animalName || 'Not specified'}
+- Breed: ${breed || 'Not specified'}
+- Age: ${age || 'Not specified'}
+- Sex: ${sex || 'Not specified'}
+- Observed Symptoms: ${symptoms && symptoms.length > 0 ? symptoms.join(', ') : 'None explicitly checked'}
+- Body Temperature: ${temperature}
+- Behavior / Demeanor: ${behavior}
+- Appetite: ${appetite}
+- Water Intake: ${waterIntake}
+- Milk Production (if applicable): ${milkProduction}
+- Duration of Symptoms: ${duration}
+- User's Detailed Notes: ${additionalInformation || 'None provided'}
 - Preferred Output Language: ${language}
 
-Analyze the photo and reported signs. Return a valid JSON object matching this structure:
-{
-  "animalDetected": true,
-  "detectedAnimalType": "Cow / Buffalo / Goat / Sheep / Unknown",
-  "imageQuality": {
-    "sufficient": true,
-    "reason": "Brief feedback on clarity/lighting"
-  },
-  "overallHealthStatus": "Healthy" | "Needs Attention" | "High Risk" | "Emergency",
-  "riskLevel": "Low" | "Medium" | "High" | "Emergency",
-  "possibleConditions": [
-    {
-      "name": "Condition Name",
-      "confidence": 75,
-      "reason": "Simple explanation based on visible signs and symptoms"
-    }
-  ],
-  "visibleSymptoms": ["List of physical signs detected in the photo, or state none if clean"],
-  "reportedSymptoms": ["List of symptoms confirmed by farmer"],
-  "possibleCauses": ["Possible environmental, bacterial, viral, or nutritional factors without asserting certainty"],
-  "generalRecommendations": ["Safe supportive care actions for the farmer"],
-  "preventionTips": ["Herd biosecurity and vaccination guidance"],
-  "medicinesAndTreatment": {
-    "firstAidMedications": ["List of safe immediate first aid medicines and supplies in ${language}"],
-    "veterinaryDrugs": ["List of standard veterinary medicines to discuss with veterinarian in ${language}"],
-    "safetyPrecautions": "Clear guidance on veterinary prescription and milk/meat withdrawal"
-  },
-  "veterinarianRecommended": true,
-  "emergency": false,
-  "healthScore": 75,
-  "disclaimer": "This AI assessment is for preliminary informational purposes only and is not a substitute for diagnosis or treatment by a qualified veterinarian."
-}`;
+Analyze the clinical signs and image (if provided). Generate a comprehensive assessment strictly adhering to the JSON schema.`;
 
     const contents: any = [];
 
@@ -345,54 +370,201 @@ Analyze the photo and reported signs. Return a valid JSON object matching this s
       text: `${systemPrompt}\n\n${userPromptText}`,
     });
 
-    // Call Gemini 3.8 Flash model
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: contents,
-      config: {
-        responseMimeType: 'application/json',
-      },
-    });
+    // Call Gemini with resilient model fallback for production reliability
+    const candidateModels = ['gemini-flash-latest', 'gemini-3.1-flash-lite', 'gemini-3.8-flash'];
+    let responseText = '';
+    let lastError: any = null;
 
-    const responseText = response.text || '{}';
-    let resultJSON: any;
+    for (const modelName of candidateModels) {
+      try {
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: contents,
+          config: {
+            responseMimeType: 'application/json',
+          },
+        });
+        if (response.text) {
+          responseText = response.text;
+          break;
+        }
+      } catch (mErr: any) {
+        lastError = mErr;
+        console.warn(`Model ${modelName} returned error, trying fallback candidate:`, mErr?.message || mErr);
+      }
+    }
+
+    if (!responseText) {
+      throw lastError || new Error('All AI model candidates unavailable');
+    }
+
+    let rawJson: any;
+
     try {
-      resultJSON = JSON.parse(responseText);
-    } catch (parseError) {
-      // Fallback cleanup if model wrapped in markdown
-      const cleaned = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
-      resultJSON = JSON.parse(cleaned);
+      rawJson = JSON.parse(responseText.trim());
+    } catch (e1) {
+      // Clean possible markdown code fences
+      const cleaned = responseText.replace(/```json\s*/gi, '').replace(/```\s*$/gi, '').replace(/```/g, '').trim();
+      try {
+        rawJson = JSON.parse(cleaned);
+      } catch (e2) {
+        // Fallback: extract substring between first { and last }
+        const match = cleaned.match(/\{[\s\S]*\}/);
+        if (match) {
+          rawJson = JSON.parse(match[0]);
+        } else {
+          throw new Error('MALFORMED_AI_RESPONSE');
+        }
+      }
     }
 
-    // Check if animal wasn't detected
-    if (resultJSON.animalDetected === false) {
-      return res.status(200).json({
-        success: false,
-        animalDetected: false,
-        message: language === 'hi' 
-          ? 'अपलोड की गई फोटो में समर्थित पशु (गाय, भैंस, बकरी या भेड़) नहीं दिख रहा है। कृपया पशु के प्रभावित हिस्से की स्पष्ट फोटो लगाएं।'
-          : language === 'mr'
-          ? 'अपलोड केलेल्या फोटोमध्ये समर्थित जनावर (गाय, म्हैस, शेळी किंवा मेंढी) आढळले नाही. कृपया जनावराचा स्पष्ट फोटो जोडा.'
-          : 'The uploaded image does not appear to contain a supported animal. Please upload a clear photo of a cow, buffalo, goat, or sheep.',
-        result: resultJSON
-      });
+    // Validate and structure response
+    const animalOut = rawJson.animal || {};
+    const speciesOut = animalOut.species || animalType;
+    const analysisOut = rawJson.analysis || {};
+
+    let severityVal = String(analysisOut.severity || rawJson.severity || 'low').toLowerCase();
+    if (!['low', 'moderate', 'high', 'emergency'].includes(severityVal)) {
+      severityVal = severityVal.includes('emerg') || severityVal.includes('crit') ? 'emergency' : severityVal.includes('high') ? 'high' : severityVal.includes('mod') ? 'moderate' : 'low';
     }
 
-    // Ensure mandatory fields exist
-    if (!resultJSON.disclaimer) {
-      resultJSON.disclaimer = 'This AI assessment is for preliminary informational purposes only and is not a substitute for diagnosis or treatment by a qualified veterinarian.';
-    }
+    let confidenceVal = Number(analysisOut.confidence ?? rawJson.confidence ?? 75);
+    if (isNaN(confidenceVal) || confidenceVal < 0) confidenceVal = 70;
+    if (confidenceVal > 100) confidenceVal = 100;
+
+    const possibleConditionsOut = Array.isArray(analysisOut.possible_conditions)
+      ? analysisOut.possible_conditions.map((c: any) => {
+          if (typeof c === 'string') {
+            return { name: c, confidence: confidenceVal, reason: 'Identified based on clinical signs and reported symptoms.' };
+          }
+          return {
+            name: String(c.name || 'Condition'),
+            confidence: Number(c.confidence ?? confidenceVal),
+            reason: String(c.reason || 'Clinical observation')
+          };
+        })
+      : Array.isArray(rawJson.possibleConditions)
+      ? rawJson.possibleConditions.map((c: any) => ({
+          name: String(c.name || 'Condition'),
+          confidence: Number(c.confidence ?? confidenceVal),
+          reason: String(c.reason || 'Clinical observation')
+        }))
+      : [{ name: 'General Health Observation', confidence: confidenceVal, reason: 'Evaluated based on reported symptoms.' }];
+
+    const observedSymptomsOut = Array.isArray(analysisOut.observed_symptoms)
+      ? analysisOut.observed_symptoms.map(String)
+      : Array.isArray(rawJson.visibleSymptoms)
+      ? rawJson.visibleSymptoms.map(String)
+      : symptoms;
+
+    const recommendationsOut = Array.isArray(rawJson.recommendations)
+      ? rawJson.recommendations.map(String)
+      : Array.isArray(rawJson.generalRecommendations)
+      ? rawJson.generalRecommendations.map(String)
+      : ['Provide clean drinking water, adequate ventilation, and monitor closely.'];
+
+    const immediateActionsOut = Array.isArray(rawJson.immediate_actions)
+      ? rawJson.immediate_actions.map(String)
+      : Array.isArray(rawJson.immediateActions)
+      ? rawJson.immediateActions.map(String)
+      : ['Isolate animal in a clean, quiet area to reduce physical stress.'];
+
+    const warningSignsOut = Array.isArray(rawJson.warning_signs)
+      ? rawJson.warning_signs.map(String)
+      : Array.isArray(rawJson.warningSigns)
+      ? rawJson.warningSigns.map(String)
+      : ['Sudden collapse', 'Severe respiratory distress', 'Extreme lethargy or non-responsiveness'];
+
+    const vetRequiredOut = Boolean(
+      rawJson.veterinarian_required ??
+      rawJson.veterinarianRecommended ??
+      severityVal === 'high' ??
+      severityVal === 'emergency'
+    );
+
+    const emergencyOut = Boolean(
+      rawJson.emergency ??
+      severityVal === 'emergency'
+    );
+
+    const summaryOut = String(
+      analysisOut.summary ||
+      rawJson.summary ||
+      rawJson.rawAIExplanation ||
+      `Health analysis complete for ${speciesOut}.`
+    ).trim();
+
+    // Map backwards-compatible fields
+    const riskLevelVal = severityVal === 'emergency' ? 'Emergency' : severityVal === 'high' ? 'High' : severityVal === 'moderate' ? 'Medium' : 'Low';
+    const healthStatusVal = severityVal === 'emergency' ? 'Emergency' : severityVal === 'high' ? 'High Risk' : severityVal === 'moderate' ? 'Needs Attention' : 'Healthy';
+
+    let healthScoreVal = 85;
+    if (severityVal === 'emergency') healthScoreVal = Math.max(15, 100 - confidenceVal);
+    else if (severityVal === 'high') healthScoreVal = Math.max(35, 100 - Math.round(confidenceVal * 0.7));
+    else if (severityVal === 'moderate') healthScoreVal = Math.max(55, 100 - Math.round(confidenceVal * 0.45));
+    else healthScoreVal = Math.min(96, Math.max(78, 100 - Math.round(confidenceVal * 0.2)));
+
+    const resultPayload = {
+      // Strict JSON Schema representation
+      animal: {
+        species: speciesOut,
+        breed: breed || animalOut.breed || '',
+        name: animalName || animalOut.name || '',
+        age: age || animalOut.age || '',
+        sex: sex || animalOut.sex || ''
+      },
+      analysis: {
+        possible_conditions: possibleConditionsOut,
+        observed_symptoms: observedSymptomsOut,
+        severity: severityVal,
+        confidence: confidenceVal,
+        summary: summaryOut
+      },
+      recommendations: recommendationsOut,
+      immediate_actions: immediateActionsOut,
+      warning_signs: warningSignsOut,
+      veterinarian_required: vetRequiredOut,
+      emergency: emergencyOut,
+
+      // Backward-compatible fields
+      animalDetected: true,
+      detectedAnimalType: speciesOut,
+      overallHealthStatus: healthStatusVal,
+      riskLevel: riskLevelVal,
+      possibleConditions: possibleConditionsOut,
+      visibleSymptoms: observedSymptomsOut,
+      reportedSymptoms: symptoms,
+      possibleCauses: possibleConditionsOut.map((c: any) => c.name),
+      generalRecommendations: recommendationsOut,
+      preventionTips: warningSignsOut,
+      medicinesAndTreatment: {
+        firstAidMedications: immediateActionsOut,
+        veterinaryDrugs: vetRequiredOut
+          ? ['Consult a licensed veterinarian for formal prescription and accurate dosage calculation.']
+          : ['Supportive care and periodic monitoring.'],
+        supportiveCare: recommendationsOut,
+        safetyPrecautions: 'Prescription antibiotics and injectable medications must always be administered under professional veterinary guidance.'
+      },
+      veterinarianRecommended: vetRequiredOut,
+      healthScore: healthScoreVal,
+      disclaimer: 'This AI health assessment provides preliminary guidance based on visual observations and reported signs. It does not replace clinical veterinary diagnosis or treatment.',
+      rawAIExplanation: summaryOut,
+      summary: summaryOut,
+      immediateActions: immediateActionsOut,
+      warningSigns: warningSignsOut
+    };
 
     return res.status(200).json({
       success: true,
       animalDetected: true,
-      result: resultJSON,
+      result: resultPayload,
     });
   } catch (error: any) {
-    console.error('AI Vision Analysis error:', error);
+    console.error('AI Animal Health Analysis error:', error);
     return res.status(500).json({
+      success: false,
       error: 'ANALYSIS_FAILED',
-      message: error.message || 'An unexpected error occurred while communicating with the AI service. Please try again.',
+      message: 'Unable to complete the health analysis right now. Please try again.',
     });
   }
 });
@@ -800,6 +972,24 @@ app.post('/api/auth/otp-verify', (req: Request, res: Response) => {
     return res.json({ success: true, user, token: `pashu_token_${user.id}` });
   }
   return res.status(400).json({ success: false, message: 'Invalid verification code. Please check your SMS and try again.' });
+});
+
+// Explicit JSON error handler and catch-all for API routes to prevent HTML responses
+app.all('/api/*', (req: Request, res: Response) => {
+  res.status(404).json({
+    success: false,
+    error: 'ENDPOINT_NOT_FOUND',
+    message: `API route ${req.method} ${req.path} not found.`
+  });
+});
+
+app.use('/api', (err: any, req: Request, res: Response, next: any) => {
+  console.error('API Error Middleware caught:', err);
+  res.status(err.status || 500).json({
+    success: false,
+    error: err.code || 'INTERNAL_ERROR',
+    message: 'Unable to complete the health analysis right now. Please try again.'
+  });
 });
 
 // ==========================================
