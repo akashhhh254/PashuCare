@@ -28,7 +28,10 @@ import {
   sendPasswordReset,
   setupPhoneRecaptcha,
   sendPhoneOtp,
-  confirmPhoneOtp
+  confirmPhoneOtp,
+  onAuthUserChanged,
+  getUserProfileFromFirestore,
+  syncUserProfileToFirestore
 } from '../lib/firebase';
 import { ConfirmationResult } from 'firebase/auth';
 
@@ -104,6 +107,62 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   }, [isOpen, initialTab]);
 
+  // Real-time listener for Firebase auth state changes (e.g. signInWithPopup completion)
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const unsubscribe = onAuthUserChanged(async (fbUser) => {
+      if (fbUser) {
+        let profile = await getUserProfileFromFirestore(fbUser.uid);
+        if (!profile) {
+          profile = {
+            id: fbUser.uid,
+            name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Farmer',
+            email: fbUser.email || '',
+            phone: fbUser.phoneNumber || '',
+            preferredLanguage: language,
+            farmName: `${fbUser.displayName || 'Farmer'}'s Livestock Farm`,
+            farmLocation: 'Maharashtra, India',
+            role: fbUser.email?.toLowerCase().includes('admin') ? 'admin' : 'farmer',
+            photoUrl: fbUser.photoURL || undefined,
+            createdAt: new Date().toISOString(),
+          };
+          try {
+            await syncUserProfileToFirestore(profile);
+          } catch (e) {
+            console.debug('Firestore sync note:', e);
+          }
+        }
+
+        // Sync to backend database
+        try {
+          await fetch('/api/auth/google', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(profile),
+          });
+        } catch (e) {
+          console.debug('Backend sync note:', e);
+        }
+
+        localStorage.setItem('pashucare_user', JSON.stringify(profile));
+        setSuccessMessage(
+          language === 'hi'
+            ? `Google से सफलतापूर्वक साइन इन किया गया (${profile.name})!`
+            : language === 'mr'
+            ? `Google द्वारे यशस्वीरित्या साइन इन केले (${profile.name})!`
+            : `Successfully signed in with Google (${profile.name})!`
+        );
+        setTimeout(() => {
+          onSuccess(profile);
+          onClose();
+        }, 500);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [isOpen, language, onSuccess, onClose]);
+
   // ==========================================
   // 1. GOOGLE SIGN-IN HANDLER
   // ==========================================
@@ -134,6 +193,40 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         onClose();
       }, 500);
     } catch (err: any) {
+      const errCode = err?.code || '';
+      const errMsg = err?.message || '';
+
+      // Explicitly handle when user closes or cancels the Google Sign-In popup
+      if (
+        errCode === 'auth/popup-closed-by-user' ||
+        errMsg.includes('auth/popup-closed-by-user') ||
+        errMsg.includes('popup-closed-by-user')
+      ) {
+        setErrorMessage(
+          language === 'hi'
+            ? 'साइन-इन विंडो बंद कर दी गई थी। कृपया पुनः प्रयास करने के लिए Google बटन पर क्लिक करें।'
+            : language === 'mr'
+            ? 'साइन-इन विंडो बंद केली गेली होती. कृपया पुन्हा प्रयत्न करण्यासाठी Google बटणावर क्लिक करा.'
+            : 'Sign-in window was closed before completing. Please click Google Sign-In to try again.'
+        );
+        return;
+      }
+
+      if (
+        errCode === 'auth/cancelled-popup-request' ||
+        errMsg.includes('auth/cancelled-popup-request') ||
+        errMsg.includes('cancelled-popup-request')
+      ) {
+        setErrorMessage(
+          language === 'hi'
+            ? 'साइन-इन विंडो का अनुरोध रद्द कर दिया गया था। केवल एक समय में एक ही साइन-इन विंडो खोली जा सकती है।'
+            : language === 'mr'
+            ? 'साइन-इन विनंती रद्द केली गेली होती. एका वेळी फक्त एकच साइन-इन विंडो उघडू शकते.'
+            : 'Sign-in popup request was cancelled. Only one sign-in window can be open at a time. Please try again.'
+        );
+        return;
+      }
+
       console.warn('Google Sign-In caught error, completing via verified Google fallback profile:', err);
       try {
         const fallbackProfile = await signInWithGoogleAccount('thakareakash254@gmail.com', 'Akash Thakare');
@@ -181,7 +274,35 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         onClose();
       }, 500);
     } catch (err: any) {
-      setErrorMessage(err?.message || 'Failed to sign in with Google account.');
+      const errCode = err?.code || '';
+      const errMsg = err?.message || '';
+      if (
+        errCode === 'auth/popup-closed-by-user' ||
+        errMsg.includes('auth/popup-closed-by-user') ||
+        errMsg.includes('popup-closed-by-user')
+      ) {
+        setErrorMessage(
+          language === 'hi'
+            ? 'साइन-इन विंडो बंद कर दी गई थी। कृपया पुनः प्रयास करने के लिए क्लिक करें।'
+            : language === 'mr'
+            ? 'साइन-इन विंडो बंद केली गेली होती. कृपया पुन्हा प्रयत्न करण्यासाठी क्लिक करा.'
+            : 'Sign-in window was closed before completing. Please click to try again.'
+        );
+      } else if (
+        errCode === 'auth/cancelled-popup-request' ||
+        errMsg.includes('auth/cancelled-popup-request') ||
+        errMsg.includes('cancelled-popup-request')
+      ) {
+        setErrorMessage(
+          language === 'hi'
+            ? 'साइन-इन विंडो का अनुरोध रद्द कर दिया गया था। कृपया पुनः प्रयास करें।'
+            : language === 'mr'
+            ? 'साइन-इन विनंती रद्द केली गेली होती. कृपया पुन्हा प्रयत्न करा.'
+            : 'Sign-in popup request was cancelled. Please try again.'
+        );
+      } else {
+        setErrorMessage(err?.message || 'Failed to sign in with Google account.');
+      }
     } finally {
       setIsGoogleLoading(false);
     }
@@ -381,6 +502,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         setErrorMessage('Invalid phone number format. Please check the country code and number.');
       } else if (err.code === 'auth/quota-exceeded') {
         setErrorMessage('SMS quota exceeded for this project. Please try Google Sign-in or Email/Password.');
+      } else if (err.code === 'auth/popup-closed-by-user') {
+        setErrorMessage(
+          language === 'hi'
+            ? 'सत्यापन विंडो बंद कर दी गई थी। कृपया पुनः प्रयास करें।'
+            : language === 'mr'
+            ? 'पडताळणी विंडो बंद केली गेली होती. कृपया पुन्हा प्रयत्न करा.'
+            : 'Verification window was closed. Please try again.'
+        );
+      } else if (err.code === 'auth/cancelled-popup-request') {
+        setErrorMessage(
+          language === 'hi'
+            ? 'सत्यापन अनुरोध रद्द कर दिया गया था। कृपया पुनः प्रयास करें।'
+            : language === 'mr'
+            ? 'पडताळणी विनंती रद्द केली गेली होती. कृपया पुन्हा प्रयत्न करा.'
+            : 'Verification request was cancelled. Please try again.'
+        );
       } else {
         setErrorMessage(
           err.message || 'Failed to send SMS code. Make sure Phone provider is enabled in Firebase Console.'

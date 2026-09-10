@@ -149,12 +149,14 @@ try {
 }
 export const db: Firestore = firestoreDb;
 
-// Configure real Google Auth Provider
+// Configure real Google Auth Provider with Authorized OAuth Client ID
 export const googleAuthProvider = new GoogleAuthProvider();
 googleAuthProvider.addScope('profile');
 googleAuthProvider.addScope('email');
+googleAuthProvider.addScope('openid');
 googleAuthProvider.setCustomParameters({
   prompt: 'select_account',
+  ...(bundledFirebaseConfig.oAuthClientId ? { client_id: bundledFirebaseConfig.oAuthClientId } : {})
 });
 
 // Environment / Platform Detection Helpers
@@ -316,10 +318,40 @@ export async function signInWithGoogle(options?: {
       };
       await syncUserProfileToFirestore(profile);
     }
+
+    // Synchronize authenticated profile with backend /api/auth/google
+    try {
+      await fetch('/api/auth/google', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(profile)
+      });
+    } catch (backendSyncErr) {
+      console.debug('Backend Google auth sync note:', backendSyncErr);
+    }
+
+    try {
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('pashucare_user', JSON.stringify(profile));
+      }
+    } catch {
+      // ignore
+    }
+
     return profile;
   } catch (popupErr: any) {
     const errCode = popupErr?.code || '';
     const errMsg = popupErr?.message || '';
+
+    // If popup was explicitly closed by the user or cancelled, DO NOT fallback - rethrow for explicit UI feedback
+    if (
+      errCode === 'auth/popup-closed-by-user' ||
+      errCode === 'auth/cancelled-popup-request' ||
+      errMsg.includes('popup-closed-by-user') ||
+      errMsg.includes('cancelled-popup-request')
+    ) {
+      throw popupErr;
+    }
 
     // If popup was blocked and we are not in an iframe, fall back to redirect
     if ((errCode === 'auth/popup-blocked' || errMsg.includes('popup-blocked')) && !inIframe) {
@@ -334,7 +366,6 @@ export async function signInWithGoogle(options?: {
       errCode === 'auth/unauthorized-domain' ||
       errCode === 'auth/popup-blocked' ||
       errCode === 'auth/operation-not-allowed' ||
-      errCode === 'auth/cancelled-popup-request' ||
       errCode === 'auth/internal-error' ||
       errMsg.includes('unauthorized-domain') ||
       errMsg.includes('popup-blocked');
@@ -422,6 +453,25 @@ export async function handleRedirectAuthResult(): Promise<UserProfile | null> {
       };
       await syncUserProfileToFirestore(profile);
     }
+
+    try {
+      await fetch('/api/auth/google', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(profile)
+      });
+    } catch (e) {
+      console.debug('Backend Google redirect auth sync note:', e);
+    }
+
+    try {
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('pashucare_user', JSON.stringify(profile));
+      }
+    } catch {
+      // ignore
+    }
+
     return profile;
   } catch (error: any) {
     if (

@@ -116,12 +116,19 @@ export const AuthView: React.FC<AuthViewProps> = ({
         ? 'पासवर्ड खूप कमकुवत आहे. किमान ६ अक्षरे वापरा.'
         : 'Password is too weak. Please use at least 6 characters.';
     }
-    if (code === 'auth/popup-closed-by-user') {
+    if (code === 'auth/popup-closed-by-user' || message.includes('popup-closed-by-user')) {
       return language === 'hi'
-        ? 'साइन इन विंडो बंद कर दी गई थी। कृपया पुनः प्रयास करें।'
+        ? 'साइन इन विंडो बंद कर दी गई थी। कृपया पुनः प्रयास करने के लिए Google बटन पर क्लिक करें।'
         : language === 'mr'
-        ? 'साइन इन विंडो बंद केली गेली. कृपया पुन्हा प्रयत्न करा.'
-        : 'Sign-in window was closed. Please try again.';
+        ? 'साइन इन विंडो बंद केली गेली होती. कृपया पुन्हा प्रयत्न करण्यासाठी Google बटणावर क्लिक करा.'
+        : 'Sign-in popup was closed before completing. Please try again.';
+    }
+    if (code === 'auth/cancelled-popup-request' || message.includes('cancelled-popup-request')) {
+      return language === 'hi'
+        ? 'साइन इन अनुरोध रद्द कर दिया गया था। केवल एक समय में एक ही विंडो खोली जा सकती है।'
+        : language === 'mr'
+        ? 'साइन इन विनंती रद्द केली गेली होती. एका वेळी फक्त एकच विंडो उघडू शकते.'
+        : 'Sign-in popup request was cancelled. Only one sign-in window can be open at a time.';
     }
     return language === 'hi'
       ? 'प्रमाणीकरण में समस्या आई। कृपया पुनः प्रयास करें।'
@@ -278,6 +285,19 @@ export const AuthView: React.FC<AuthViewProps> = ({
         onAuthSuccess(profile, false);
       }
     } catch (err: any) {
+      const errCode = err?.code || '';
+      const errMsg = err?.message || '';
+
+      if (
+        errCode === 'auth/popup-closed-by-user' ||
+        errCode === 'auth/cancelled-popup-request' ||
+        errMsg.includes('popup-closed-by-user') ||
+        errMsg.includes('cancelled-popup-request')
+      ) {
+        setErrorMsg(mapAuthError(err));
+        return;
+      }
+
       console.warn('Google Sign-In fallback handler invoked:', err);
       try {
         const fallbackProfile = await signInWithGoogleAccount('thakareakash254@gmail.com', 'Akash Thakare');
