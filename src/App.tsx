@@ -15,7 +15,6 @@ import { DiseaseLibraryView } from './components/DiseaseLibraryView';
 import { AdminView } from './components/AdminView';
 import { LandingView } from './components/LandingView';
 import { AuthModal } from './components/AuthModal';
-import { GoogleConsentModal } from './components/GoogleConsentModal';
 import { PrivacyModal } from './components/PrivacyModal';
 import { ProfileView } from './components/ProfileView';
 import { Footer } from './components/Footer';
@@ -28,8 +27,23 @@ import {
   VeterinarianRequest
 } from './types';
 import { translations, getTranslation } from './i18n/translations';
-import { auth, signInWithGooglePopup, logOutFromFirebase } from './lib/firebase';
-import { onAuthStateChanged } from 'firebase/auth';
+import {
+  logOutFromFirebase,
+  onAuthUserChanged,
+  getUserProfileFromFirestore,
+  subscribeToAnimals,
+  subscribeToReports,
+  subscribeToReminders,
+  subscribeToVetRequests,
+  addAnimalToFirestore,
+  deleteAnimalFromFirestore,
+  addReportToFirestore,
+  deleteReportFromFirestore,
+  addReminderToFirestore,
+  toggleReminderInFirestore,
+  deleteReminderFromFirestore,
+  addVetRequestToFirestore
+} from './lib/firebase';
 
 export default function App() {
   // Navigation & View State
@@ -38,18 +52,14 @@ export default function App() {
     return (localStorage.getItem('pashucare_lang') as Language) || 'en';
   });
 
-  // User Authentication State (defaults to null until user explicitly consents & authenticates)
+  // User Authentication State (defaults to null until user manually logs in or registers)
   const [user, setUser] = useState<UserProfile | null>(() => {
     try {
-      const consentGiven = localStorage.getItem('pashucare_consent_given');
       const saved = localStorage.getItem('pashucare_user');
-      if (saved && consentGiven === 'true') {
+      if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed && parsed.name !== 'Ramesh Patil' && parsed.id !== 'farmer-1') {
-          const userConsent = localStorage.getItem(`pashucare_consent_${parsed.id}`);
-          if (userConsent === 'true') {
-            return parsed;
-          }
+          return parsed;
         }
       }
       localStorage.removeItem('pashucare_user');
@@ -74,8 +84,6 @@ export default function App() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authInitialTab, setAuthInitialTab] = useState<'signin' | 'register'>('register');
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
-  const [pendingGoogleUser, setPendingGoogleUser] = useState<any | null>(null);
-  const [showGoogleConsentModal, setShowGoogleConsentModal] = useState(false);
 
   const handleOpenAuth = (tab: 'signin' | 'register' = 'register') => {
     setAuthInitialTab(tab);
@@ -88,7 +96,25 @@ export default function App() {
     localStorage.setItem('pashucare_lang', lang);
   };
 
-  // Fetch initial data from backend API
+  // Listen to Firebase Auth state
+  useEffect(() => {
+    const unsubscribe = onAuthUserChanged(async (fbUser) => {
+      if (fbUser) {
+        try {
+          const profile = await getUserProfileFromFirestore(fbUser.uid);
+          if (profile) {
+            setUser(profile);
+            localStorage.setItem('pashucare_user', JSON.stringify(profile));
+          }
+        } catch (e) {
+          console.warn('Firebase user profile retrieval notice:', e);
+        }
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Fetch initial data from backend API as fallback
   const refreshData = async () => {
     try {
       // Animals
@@ -123,43 +149,55 @@ export default function App() {
     }
   };
 
+  // Real-time Firestore synchronization for logged-in farmers
   useEffect(() => {
-    refreshData();
-  }, []);
+    if (!user?.id) {
+      refreshData();
+      return;
+    }
 
-  // Listen to official Firebase Auth state changes
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      if (firebaseUser) {
-        const hasConsented =
-          localStorage.getItem('pashucare_consent_given') === 'true' &&
-          localStorage.getItem(`pashucare_consent_${firebaseUser.uid}`) === 'true';
+    // Subscribe in real-time to Firestore collections for this farmer
+    const unsubAnimals = subscribeToAnimals(
+      user.id,
+      (realtimeAnimals) => {
+        setAnimals(realtimeAnimals);
+      },
+      (err) => console.warn('Realtime animals sync:', err)
+    );
 
-        if (!hasConsented) {
-          // Explicitly hold Firebase user in pending state and show Data Sharing & Account Access modal FIRST
-          setPendingGoogleUser(firebaseUser);
-          setShowGoogleConsentModal(true);
-        } else {
-          const userProfile: UserProfile = {
-            id: firebaseUser.uid,
-            name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Farmer',
-            email: firebaseUser.email || '',
-            phone: firebaseUser.phoneNumber || '',
-            role: 'farmer',
-            preferredLanguage: language,
-            farmName: 'My Dairy & Livestock Farm',
-            farmLocation: 'Maharashtra, India',
-            createdAt: new Date().toISOString(),
-          };
-          setUser(userProfile);
-          localStorage.setItem('pashucare_user', JSON.stringify(userProfile));
-        }
-      }
-    });
-    return () => unsubscribe();
-  }, [language]);
+    const unsubReports = subscribeToReports(
+      user.id,
+      (realtimeReports) => {
+        setReports(realtimeReports);
+      },
+      (err) => console.warn('Realtime reports sync:', err)
+    );
 
-  // Save User profile change
+    const unsubReminders = subscribeToReminders(
+      user.id,
+      (realtimeReminders) => {
+        setReminders(realtimeReminders);
+      },
+      (err) => console.warn('Realtime reminders sync:', err)
+    );
+
+    const unsubVetRequests = subscribeToVetRequests(
+      user.id,
+      (realtimeRequests) => {
+        setVetRequests(realtimeRequests);
+      },
+      (err) => console.warn('Realtime vet requests sync:', err)
+    );
+
+    return () => {
+      unsubAnimals();
+      unsubReports();
+      unsubReminders();
+      unsubVetRequests();
+    };
+  }, [user?.id]);
+
+  // Save User profile change upon manual registration or login
   const handleUserLogin = (loggedInUser: UserProfile) => {
     setUser(loggedInUser);
     localStorage.setItem('pashucare_user', JSON.stringify(loggedInUser));
@@ -170,113 +208,210 @@ export default function App() {
     try {
       await logOutFromFirebase();
     } catch (e) {
-      console.warn('Firebase signout error:', e);
+      console.warn('Signout notice:', e);
     }
     setUser(null);
-    setPendingGoogleUser(null);
-    setShowGoogleConsentModal(false);
     localStorage.removeItem('pashucare_user');
-    localStorage.removeItem('pashucare_consent_given');
   };
 
-  // Handle Adding Animal
+  // Handle Adding Animal with Real-Time Firestore Sync
   const handleAddAnimal = async (animalData: Partial<AnimalProfile>) => {
+    const animalId = `anim_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const fullAnimal: AnimalProfile = {
+      id: animalId,
+      userId: user?.id || 'anonymous',
+      name: animalData.name || 'Livestock Animal',
+      tagId: animalData.tagId || `IN-${Math.floor(1000 + Math.random() * 9000)}`,
+      type: animalData.type || 'Cow',
+      age: animalData.age || '3 years',
+      gender: animalData.gender || 'Female',
+      breed: animalData.breed || 'Indigenous',
+      farmLocation: animalData.farmLocation || user?.farmLocation || 'Maharashtra, India',
+      healthScore: animalData.healthScore ?? 90,
+      status: animalData.status || 'Healthy',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      photoUrl: animalData.photoUrl
+    };
+
+    // Optimistically update local state
+    setAnimals((prev) => [fullAnimal, ...prev]);
+
+    // Persist in real-time Firestore database
+    if (user?.id) {
+      try {
+        await addAnimalToFirestore(fullAnimal);
+      } catch (err) {
+        console.warn('Firestore animal write fallback:', err);
+      }
+    }
+
+    // Backend endpoint backup
     try {
-      const res = await fetch('/api/animals', {
+      await fetch('/api/animals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(animalData),
+        body: JSON.stringify(fullAnimal),
       });
-      if (res.ok) {
-        const newAnimal = await res.json();
-        setAnimals((prev) => [newAnimal, ...prev]);
-      }
     } catch (err) {
-      console.error('Failed to add animal:', err);
+      console.error('Failed to add animal to backup API:', err);
     }
   };
 
-  // Handle Deleting Animal
+  // Handle Deleting Animal with Real-Time Firestore Sync
   const handleDeleteAnimal = async (animalId: string) => {
+    setAnimals((prev) => prev.filter((a) => a.id !== animalId));
+    if (user?.id) {
+      try {
+        await deleteAnimalFromFirestore(animalId);
+      } catch (err) {
+        console.warn('Firestore animal delete fallback:', err);
+      }
+    }
     try {
       await fetch(`/api/animals/${animalId}`, { method: 'DELETE' });
-      setAnimals((prev) => prev.filter((a) => a.id !== animalId));
     } catch (err) {
-      console.error('Failed to delete animal:', err);
+      console.error('Failed to delete animal from API:', err);
     }
   };
 
-  // Handle Adding Reminder
+  // Handle Adding Reminder with Real-Time Firestore Sync
   const handleAddReminder = async (reminderData: Partial<Reminder>) => {
+    const reminderId = `rem_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const fullReminder: Reminder = {
+      id: reminderId,
+      userId: user?.id || 'anonymous',
+      title: reminderData.title || 'Livestock Reminder',
+      animalName: reminderData.animalName || 'Livestock',
+      animalId: reminderData.animalId,
+      type: reminderData.type || 'vaccination',
+      dueDate: reminderData.dueDate || new Date().toISOString().split('T')[0],
+      completed: false,
+      notes: reminderData.notes,
+      createdAt: new Date().toISOString()
+    };
+
+    setReminders((prev) => [fullReminder, ...prev]);
+
+    if (user?.id) {
+      try {
+        await addReminderToFirestore(fullReminder);
+      } catch (err) {
+        console.warn('Firestore reminder write fallback:', err);
+      }
+    }
+
     try {
-      const res = await fetch('/api/reminders', {
+      await fetch('/api/reminders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(reminderData),
+        body: JSON.stringify(fullReminder),
       });
-      if (res.ok) {
-        const newReminder = await res.json();
-        setReminders((prev) => [newReminder, ...prev]);
-      }
     } catch (err) {
-      console.error('Failed to add reminder:', err);
+      console.error('Failed to add reminder to API:', err);
     }
   };
 
-  // Handle Toggle Reminder Complete
+  // Handle Toggle Reminder Complete with Real-Time Firestore Sync
   const handleToggleReminderComplete = async (reminderId: string, current: boolean) => {
+    setReminders((prev) =>
+      prev.map((r) => (r.id === reminderId ? { ...r, completed: !current } : r))
+    );
+
+    if (user?.id) {
+      try {
+        await toggleReminderInFirestore(reminderId, !current);
+      } catch (err) {
+        console.warn('Firestore reminder update fallback:', err);
+      }
+    }
+
     try {
-      const res = await fetch(`/api/reminders/${reminderId}`, {
+      await fetch(`/api/reminders/${reminderId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ completed: !current }),
       });
-      if (res.ok) {
-        setReminders((prev) =>
-          prev.map((r) => (r.id === reminderId ? { ...r, completed: !current } : r))
-        );
-      }
     } catch (err) {
       console.error('Failed to update reminder:', err);
     }
   };
 
-  // Handle Deleting Reminder
+  // Handle Deleting Reminder with Real-Time Firestore Sync
   const handleDeleteReminder = async (reminderId: string) => {
+    setReminders((prev) => prev.filter((r) => r.id !== reminderId));
+    if (user?.id) {
+      try {
+        await deleteReminderFromFirestore(reminderId);
+      } catch (err) {
+        console.warn('Firestore reminder delete fallback:', err);
+      }
+    }
     try {
       await fetch(`/api/reminders/${reminderId}`, { method: 'DELETE' });
-      setReminders((prev) => prev.filter((r) => r.id !== reminderId));
     } catch (err) {
       console.error('Failed to delete reminder:', err);
     }
   };
 
-  // Handle Deleting Health Report
+  // Handle Deleting Health Report with Real-Time Firestore Sync
   const handleDeleteReport = async (reportId: string) => {
+    setReports((prev) => prev.filter((r) => r.id !== reportId));
+    if (selectedReport?.id === reportId) {
+      setSelectedReport(null);
+      setActiveTab('history');
+    }
+
+    if (user?.id) {
+      try {
+        await deleteReportFromFirestore(reportId);
+      } catch (err) {
+        console.warn('Firestore report delete fallback:', err);
+      }
+    }
+
     try {
       await fetch(`/api/reports/${reportId}`, { method: 'DELETE' });
-      setReports((prev) => prev.filter((r) => r.id !== reportId));
-      if (selectedReport?.id === reportId) {
-        setSelectedReport(null);
-        setActiveTab('history');
-      }
     } catch (err) {
       console.error('Failed to delete report:', err);
     }
   };
 
-  // Handle Submitting Vet Consultation
+  // Handle Submitting Vet Consultation with Real-Time Firestore Sync
   const handleSubmitVetRequest = async (requestData: Partial<VeterinarianRequest>) => {
+    const reqId = `vet_req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const fullRequest: VeterinarianRequest = {
+      id: reqId,
+      userId: user?.id || 'anonymous',
+      userName: user?.name || requestData.userName || 'Farmer',
+      userPhone: user?.phone || requestData.userPhone || '+91 98765 43210',
+      animalId: requestData.animalId,
+      animalName: requestData.animalName || 'Livestock',
+      animalType: requestData.animalType || 'Cow',
+      symptoms: requestData.symptoms || [],
+      preferredDate: requestData.preferredDate || new Date().toISOString().split('T')[0],
+      preferredTime: requestData.preferredTime || 'Morning (9 AM - 12 PM)',
+      description: requestData.description || '',
+      status: 'Pending',
+      createdAt: new Date().toISOString()
+    };
+
+    setVetRequests((prev) => [fullRequest, ...prev]);
+
+    if (user?.id) {
+      try {
+        await addVetRequestToFirestore(fullRequest);
+      } catch (err) {
+        console.warn('Firestore vet request write fallback:', err);
+      }
+    }
+
     try {
-      const res = await fetch('/api/vet-requests', {
+      await fetch('/api/vet-requests', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestData),
+        body: JSON.stringify(fullRequest),
       });
-      if (res.ok) {
-        const newReq = await res.json();
-        setVetRequests((prev) => [newReq, ...prev]);
-      }
     } catch (err) {
       console.error('Failed to submit vet request:', err);
     }
@@ -315,10 +450,6 @@ export default function App() {
             language={language}
             onOpenAuth={handleOpenAuth}
             onOpenPrivacy={() => setShowPrivacyModal(true)}
-            onGoogleSignIn={() => {
-              // Open Data Sharing & Account Access consent screen FIRST as required
-              setShowGoogleConsentModal(true);
-            }}
           />
         ) : (
           <>
@@ -356,11 +487,21 @@ export default function App() {
                 animals={animals}
                 language={language}
                 preselectedAnimal={preselectedAnimalForCheck}
-                onAnalysisComplete={(report) => {
-                  setSelectedReport(report);
-                  setReports((prev) => [report, ...prev]);
+                onAnalysisComplete={async (report) => {
+                  const savedReport = {
+                    ...report,
+                    userId: user?.id || report.userId || 'anonymous'
+                  };
+                  setSelectedReport(savedReport);
+                  setReports((prev) => [savedReport, ...prev]);
                   setActiveTab('report');
-                  refreshData();
+                  if (user?.id) {
+                    try {
+                      await addReportToFirestore(savedReport);
+                    } catch (err) {
+                      console.warn('Firestore report save:', err);
+                    }
+                  }
                 }}
               />
             )}
@@ -507,59 +648,6 @@ export default function App() {
         language={language}
         onClose={() => setShowAuthModal(false)}
         onSuccess={handleUserLogin}
-        onGoogleConsentNeeded={(fbUser) => {
-          setPendingGoogleUser(fbUser);
-          setShowGoogleConsentModal(true);
-        }}
-      />
-
-      {/* Data Sharing & Account Access Consent Modal with Sticky Agree and Continue */}
-      <GoogleConsentModal
-        isOpen={showGoogleConsentModal}
-        googleUser={pendingGoogleUser}
-        language={language}
-        onAgreeAndContinue={async (existingProfile) => {
-          let activeUser = pendingGoogleUser;
-          let profileToUse = existingProfile;
-
-          // If user opened consent modal directly from landing screen, launch Google OAuth now:
-          if (!activeUser) {
-            const fbUser = await signInWithGooglePopup();
-            if (!fbUser) return;
-            activeUser = fbUser;
-            profileToUse = {
-              id: fbUser.uid,
-              name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Farmer / पशुपालक',
-              email: fbUser.email || '',
-              phone: fbUser.phoneNumber || '',
-              role: 'farmer',
-              preferredLanguage: language,
-              farmName: 'My Dairy & Livestock Farm',
-              farmLocation: 'Maharashtra, India',
-              createdAt: new Date().toISOString(),
-              photoUrl: fbUser.photoURL || undefined,
-            };
-          }
-
-          // Explicitly save consent to ensure no bypass
-          if (activeUser?.uid) {
-            localStorage.setItem('pashucare_consent_given', 'true');
-            localStorage.setItem(`pashucare_consent_${activeUser.uid}`, 'true');
-          }
-
-          if (profileToUse) {
-            handleUserLogin(profileToUse);
-          }
-
-          setShowGoogleConsentModal(false);
-          setPendingGoogleUser(null);
-        }}
-        onCancelOrSwitchAccount={async () => {
-          await logOutFromFirebase().catch(() => {});
-          setShowGoogleConsentModal(false);
-          setPendingGoogleUser(null);
-        }}
-        onOpenPrivacy={() => setShowPrivacyModal(true)}
       />
 
       {/* Privacy & Medical Charter Modal */}

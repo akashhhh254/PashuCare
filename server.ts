@@ -768,69 +768,6 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/auth/google', (req: Request, res: Response) => {
-  try {
-    const { credential, email, name, picture } = req.body;
-    let userEmail = email;
-    let userName = name;
-    let userPicture = picture;
-
-    // If credential JWT string is present from Google Identity Services
-    if (credential && typeof credential === 'string') {
-      try {
-        const parts = credential.split('.');
-        if (parts.length === 3) {
-          const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
-          userEmail = payload.email || userEmail;
-          userName = payload.name || userName;
-          userPicture = payload.picture || userPicture;
-        }
-      } catch (decodeErr) {
-        console.warn('Could not decode Google JWT credential directly:', decodeErr);
-      }
-    }
-
-    if (!userEmail) {
-      userEmail = 'akashthakare157@gmail.com';
-    }
-    if (!userName) {
-      const prefix = userEmail.split('@')[0];
-      userName = prefix.charAt(0).toUpperCase() + prefix.slice(1);
-    }
-
-    const db = readDB();
-    let user = db.users.find(u => u.email?.toLowerCase() === userEmail?.toLowerCase());
-    if (!user) {
-      user = {
-        id: `google-${Date.now()}`,
-        name: userName,
-        phone: '',
-        email: userEmail,
-        preferredLanguage: 'en',
-        farmName: `${userName.split(' ')[0]}'s Livestock Farm`,
-        farmLocation: 'Maharashtra, India',
-        role: userEmail.includes('admin') ? 'admin' : 'farmer',
-        photoUrl: userPicture || undefined,
-        createdAt: new Date().toISOString()
-      };
-      db.users.push(user);
-      writeDB(db);
-    } else if (userPicture && !user.photoUrl) {
-      user.photoUrl = userPicture;
-      writeDB(db);
-    }
-
-    return res.json({
-      success: true,
-      user,
-      token: `pashu_google_token_${user.id}`
-    });
-  } catch (err: any) {
-    console.error('Google auth error:', err);
-    return res.status(500).json({ success: false, message: 'Google authentication failed' });
-  }
-});
-
 app.post('/api/auth/otp-request', (req: Request, res: Response) => {
   const { identifier } = req.body;
   // Demo OTP simulation

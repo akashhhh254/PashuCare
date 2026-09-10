@@ -1,63 +1,33 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   User,
   Lock,
   Mail,
   Phone,
-  MapPin,
   Building,
   AlertCircle,
   Loader2,
   CheckCircle2,
-  ArrowRight
+  ArrowRight,
+  ArrowLeft,
+  KeyRound,
+  ShieldCheck,
+  Smartphone,
+  Globe
 } from 'lucide-react';
 import { UserProfile, Language } from '../types';
 import { translations, getTranslation } from '../i18n/translations';
-import { signInWithGooglePopup } from '../lib/firebase';
-
-declare global {
-  interface Window {
-    google?: {
-      accounts?: {
-        id?: {
-          initialize: (config: {
-            client_id: string;
-            callback: (response: { credential: string; select_by?: string }) => void;
-            auto_select?: boolean;
-            cancel_on_tap_outside?: boolean;
-            context?: string;
-          }) => void;
-          renderButton: (
-            parent: HTMLElement,
-            options: {
-              type?: 'standard' | 'icon';
-              theme?: 'outline' | 'filled_blue' | 'filled_black';
-              size?: 'large' | 'medium' | 'small';
-              text?: 'signin_with' | 'signup_with' | 'continue_with' | 'signin';
-              shape?: 'rectangular' | 'pill' | 'circle' | 'square';
-              logo_alignment?: 'left' | 'center';
-              width?: number | string;
-              locale?: string;
-            }
-          ) => void;
-          prompt: (momentListener?: (notification: any) => void) => void;
-          cancel?: () => void;
-        };
-        oauth2?: {
-          initTokenClient: (config: {
-            client_id: string;
-            scope: string;
-            callback: (tokenResponse: any) => void;
-            error_callback?: (error: any) => void;
-          }) => {
-            requestAccessToken: (overrideConfig?: any) => void;
-          };
-        };
-      };
-    };
-  }
-}
+import {
+  signInWithGooglePopup,
+  registerWithEmailPassword,
+  signInWithEmailPassword,
+  sendPasswordReset,
+  setupPhoneRecaptcha,
+  sendPhoneOtp,
+  confirmPhoneOtp
+} from '../lib/firebase';
+import { ConfirmationResult } from 'firebase/auth';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -65,7 +35,6 @@ interface AuthModalProps {
   initialTab?: 'signin' | 'register';
   onClose: () => void;
   onSuccess: (user: UserProfile) => void;
-  onGoogleConsentNeeded?: (fbUser: any) => void;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -74,315 +43,419 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   initialTab = 'register',
   onClose,
   onSuccess,
-  onGoogleConsentNeeded,
 }) => {
   const t = (key: keyof typeof translations['en']) => getTranslation(language, key);
 
-  const [activeTab, setActiveTab] = useState<'signin' | 'register'>(initialTab);
+  // Authentication Mode: 'email' or 'phone'
+  const [authMethod, setAuthMethod] = useState<'email' | 'phone'>('email');
+
+  // Email mode tabs: 'signin', 'register', or 'forgot_password'
+  const [activeTab, setActiveTab] = useState<'signin' | 'register' | 'forgot_password'>(initialTab);
+
+  // Loading & Feedback States
   const [isLoading, setIsLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  // Sign In Form State
-  const [signInIdentifier, setSignInIdentifier] = useState('');
+  // Email Sign In State
+  const [signInEmail, setSignInEmail] = useState('');
   const [signInPassword, setSignInPassword] = useState('');
 
-  // Register Form State
+  // Email Register State
   const [regFirstName, setRegFirstName] = useState('');
   const [regLastName, setRegLastName] = useState('');
-  const [regUsername, setRegUsername] = useState('');
-  const [regContact, setRegContact] = useState('');
+  const [regEmail, setRegEmail] = useState('');
+  const [regPhone, setRegPhone] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regConfirmPassword, setRegConfirmPassword] = useState('');
   const [regFarmName, setRegFarmName] = useState('');
   const [regFarmLocation, setRegFarmLocation] = useState('Maharashtra, India');
 
-  // Google Sign-In state
-  // Reset state when modal opens
+  // Forgot Password State
+  const [forgotEmail, setForgotEmail] = useState('');
+
+  // Phone Auth State
+  const [phoneStep, setPhoneStep] = useState<'enter_phone' | 'enter_otp'>('enter_phone');
+  const [phoneCountryCode, setPhoneCountryCode] = useState('+91');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [phoneFarmerName, setPhoneFarmerName] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
+
+  // Reset when modal opens
   useEffect(() => {
     if (isOpen) {
       setActiveTab(initialTab);
+      setAuthMethod('email');
+      setPhoneStep('enter_phone');
       setErrorMessage(null);
       setSuccessMessage(null);
+      setForgotEmail('');
+      setOtpCode('');
     }
   }, [isOpen, initialTab]);
 
-  // Handle Google Credential Response from GIS
-  const handleCredentialResponse = async (response: { credential: string; select_by?: string }) => {
-    setIsLoading(true);
+  // ==========================================
+  // 1. GOOGLE SIGN-IN HANDLER
+  // ==========================================
+  const handleGoogleSignIn = async () => {
     setErrorMessage(null);
+    setSuccessMessage(null);
+    setIsGoogleLoading(true);
 
     try {
-      if (!response.credential) {
-        throw new Error('No Google credential token received.');
-      }
-
-      let email = '';
-      let name = '';
-      let picture = '';
-
-      try {
-        const base64Url = response.credential.split('.')[1];
-        if (base64Url) {
-          const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-          const jsonPayload = decodeURIComponent(
-            window
-              .atob(base64)
-              .split('')
-              .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-              .join('')
-          );
-          const payload = JSON.parse(jsonPayload);
-          email = payload.email || '';
-          name = payload.name || '';
-          picture = payload.picture || '';
-        }
-      } catch (decodeErr) {
-        console.warn('Direct JWT payload decode notice:', decodeErr);
-      }
-
-      const res = await fetch('/api/auth/google', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          credential: response.credential,
-          email,
-          name,
-          picture,
-        }),
-      });
-
-      const data = await res.json();
-      if (res.ok && data.success && data.user) {
-        onSuccess(data.user);
+      const profile = await signInWithGooglePopup();
+      setSuccessMessage(
+        language === 'hi'
+          ? 'Google से सफलतापूर्वक साइन इन किया गया!'
+          : language === 'mr'
+          ? 'Google द्वारे यशस्वीरित्या साइन इन केले!'
+          : 'Successfully signed in with Google!'
+      );
+      setTimeout(() => {
+        onSuccess(profile);
         onClose();
-      } else {
-        setErrorMessage(data.message || 'Google authentication failed on server.');
-      }
+      }, 500);
     } catch (err: any) {
-      console.error('Google sign-in error:', err);
-      setErrorMessage(err.message || 'Google authentication failed.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Initialize GIS listener when modal is open
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const clientId = (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID;
-
-    if (clientId && typeof window !== 'undefined' && window.google?.accounts?.id) {
-      try {
-        window.google.accounts.id.initialize({
-          client_id: clientId,
-          callback: handleCredentialResponse,
-          auto_select: false,
-          cancel_on_tap_outside: true,
-        });
-      } catch (err) {
-        console.warn('GIS initialize error:', err);
-      }
-    }
-  }, [isOpen]);
-
-  // Initiate real Google Sign-In with official Google account selection popup & consent
-  const initiateGoogleSignIn = async () => {
-    setErrorMessage(null);
-    setIsLoading(true);
-    try {
-      const fbUser = await signInWithGooglePopup();
-      if (fbUser) {
-        onClose();
-        if (onGoogleConsentNeeded) {
-          onGoogleConsentNeeded(fbUser);
-        } else {
-          const userProfile: UserProfile = {
-            id: fbUser.uid,
-            name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Farmer',
-            email: fbUser.email || '',
-            phone: fbUser.phoneNumber || '',
-            role: 'farmer',
-            preferredLanguage: language,
-            farmName: 'My Dairy & Livestock Farm',
-            farmLocation: 'Maharashtra, India',
-            createdAt: new Date().toISOString(),
-          };
-          onSuccess(userProfile);
-        }
-      }
-    } catch (err: any) {
-      console.error('Real Google Sign-In error:', err);
+      console.error('Google Sign-In Error:', err);
       if (err.code === 'auth/popup-closed-by-user') {
-        setErrorMessage(
-          language === 'hi'
-            ? 'गूगल लॉगिन विंडो बंद कर दी गई थी। कृपया पुनः प्रयास करें।'
-            : language === 'mr'
-            ? 'गुगल लॉगिन विंडो बंद केली होती. कृपया पुन्हा प्रयत्न करा.'
-            : 'Google sign-in popup was closed before completing.'
-        );
+        setErrorMessage('Sign in cancelled by user.');
       } else if (err.code === 'auth/popup-blocked') {
-        setErrorMessage(
-          language === 'hi'
-            ? 'ब्राउज़र ने गूगल पॉपअप ब्लॉक कर दिया है। कृपया एड्रेस बार में पॉपअप को अनुमति दें।'
-            : 'Popup blocked by browser. Please allow popups or open in a new tab.'
-        );
+        setErrorMessage('Sign in popup was blocked by browser. Please allow popups.');
       } else {
-        setErrorMessage(err.message || 'Google sign-in error occurred.');
+        setErrorMessage(err.message || 'Google Sign-In failed. Please try again.');
       }
     } finally {
-      setIsLoading(false);
+      setIsGoogleLoading(false);
     }
   };
 
-  // Handle Real Registration Form Submission
+  // ==========================================
+  // 2. EMAIL & PASSWORD: REGISTER
+  // ==========================================
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    setSuccessMessage(null);
 
     if (!regFirstName.trim()) {
-      setErrorMessage('Please enter your first name.');
+      setErrorMessage(language === 'hi' ? 'कृपया अपना पहला नाम दर्ज करें।' : 'Please enter your first name.');
       return;
     }
     if (!regLastName.trim()) {
-      setErrorMessage('Please enter your surname / last name.');
+      setErrorMessage(language === 'hi' ? 'कृपया अपना उपनाम दर्ज करें।' : 'Please enter your last name.');
       return;
     }
-    if (!regUsername.trim()) {
-      setErrorMessage('Please choose a username.');
+    const cleanEmail = regEmail.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@') || !cleanEmail.includes('.')) {
+      setErrorMessage(language === 'hi' ? 'कृपया वैध ईमेल पता दर्ज करें।' : 'Please enter a valid email address.');
       return;
     }
-    if (!regContact.trim()) {
-      setErrorMessage('Please enter an email address or mobile number.');
-      return;
-    }
-    if (!regPassword || regPassword.length < 4) {
-      setErrorMessage('Password must be at least 4 characters long.');
+    if (!regPassword || regPassword.length < 6) {
+      setErrorMessage(
+        language === 'hi'
+          ? 'पासवर्ड कम से कम 6 अक्षरों का होना चाहिए।'
+          : 'Password must be at least 6 characters long for Firebase Auth.'
+      );
       return;
     }
     if (regPassword !== regConfirmPassword) {
-      setErrorMessage('Passwords do not match. Please re-enter.');
+      setErrorMessage(language === 'hi' ? 'पासवर्ड मेल नहीं खा रहे हैं।' : 'Passwords do not match.');
       return;
     }
 
     setIsLoading(true);
 
     try {
-      const isEmail = regContact.includes('@');
-      const payload = {
-        name: regFirstName.trim(),
-        surname: regLastName.trim(),
-        username: regUsername.trim(),
-        email: isEmail ? regContact.trim() : '',
-        phone: isEmail ? '' : regContact.trim(),
-        password: regPassword,
+      const profile = await registerWithEmailPassword(cleanEmail, regPassword, {
+        firstName: regFirstName.trim(),
+        lastName: regLastName.trim(),
+        phone: regPhone.trim(),
         farmName: regFarmName.trim() || `${regFirstName.trim()}'s Livestock Farm`,
         farmLocation: regFarmLocation.trim() || 'Maharashtra, India',
-        preferredLanguage: language,
-      };
-
-      const res = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        preferredLanguage: language
       });
 
-      const data = await res.json();
-      if (res.ok && data.success && data.user) {
-        setSuccessMessage('Account created successfully! Logging in...');
-        setTimeout(() => {
-          onSuccess(data.user);
-          onClose();
-        }, 600);
-      } else {
-        setErrorMessage(data.message || 'Failed to create account. Please try again.');
-      }
+      setSuccessMessage(
+        language === 'hi'
+          ? 'खाता सफलतापूर्वक बनाया गया! साइन इन हो रहा है...'
+          : 'Farmer account registered successfully in Firebase!'
+      );
+      setTimeout(() => {
+        onSuccess(profile);
+        onClose();
+      }, 600);
     } catch (err: any) {
-      setErrorMessage(err.message || 'Network error during registration.');
+      console.error('Firebase Registration Error:', err);
+      if (err.code === 'auth/email-already-in-use') {
+        setErrorMessage(
+          language === 'hi'
+            ? 'यह ईमेल पहले से पंजीकृत है। कृपया साइन इन करें।'
+            : 'This email is already registered. Please sign in instead.'
+        );
+      } else if (err.code === 'auth/weak-password') {
+        setErrorMessage('Password is too weak. Please use at least 6 characters.');
+      } else if (err.code === 'auth/invalid-email') {
+        setErrorMessage('Invalid email format.');
+      } else {
+        setErrorMessage(err.message || 'Failed to create account via Firebase Auth.');
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Handle Real Sign In Form Submission
+  // ==========================================
+  // 3. EMAIL & PASSWORD: SIGN IN
+  // ==========================================
   const handleSignInSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    setSuccessMessage(null);
 
-    if (!signInIdentifier.trim()) {
-      setErrorMessage('Please enter your username, email, or phone number.');
+    const email = signInEmail.trim().toLowerCase();
+    if (!email) {
+      setErrorMessage(language === 'hi' ? 'कृपया ईमेल पता दर्ज करें।' : 'Please enter your email address.');
       return;
     }
     if (!signInPassword) {
-      setErrorMessage('Please enter your password.');
+      setErrorMessage(language === 'hi' ? 'कृपया पासवर्ड दर्ज करें।' : 'Please enter your password.');
       return;
     }
 
     setIsLoading(true);
 
     try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          identifier: signInIdentifier.trim(),
-          password: signInPassword,
-        }),
-      });
-
-      const data = await res.json();
-      if (res.ok && data.success && data.user) {
-        setSuccessMessage('Signed in successfully!');
-        setTimeout(() => {
-          onSuccess(data.user);
-          onClose();
-        }, 500);
-      } else {
-        setErrorMessage(data.message || 'Sign in failed. Check your username/password.');
-      }
+      const profile = await signInWithEmailPassword(email, signInPassword);
+      setSuccessMessage(language === 'hi' ? 'साइन इन सफल!' : 'Signed in successfully!');
+      setTimeout(() => {
+        onSuccess(profile);
+        onClose();
+      }, 500);
     } catch (err: any) {
-      setErrorMessage(err.message || 'Network error during sign in.');
+      console.error('Firebase Sign-In Error:', err);
+      if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
+        setErrorMessage(
+          language === 'hi'
+            ? 'अमान्य ईमेल या पासवर्ड। कृपया पुनः जांचें।'
+            : 'Invalid email or password. Please try again or create an account.'
+        );
+      } else if (err.code === 'auth/wrong-password') {
+        setErrorMessage('Incorrect password. Please verify or use Forgot Password.');
+      } else if (err.code === 'auth/too-many-requests') {
+        setErrorMessage('Too many failed attempts. Please reset your password or try again later.');
+      } else {
+        setErrorMessage(err.message || 'Failed to sign in. Please verify your credentials.');
+      }
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // ==========================================
+  // 4. FORGOT PASSWORD
+  // ==========================================
+  const handleForgotPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    const email = forgotEmail.trim().toLowerCase();
+    if (!email || !email.includes('@') || !email.includes('.')) {
+      setErrorMessage(language === 'hi' ? 'कृपया वैध ईमेल दर्ज करें।' : 'Please enter a valid email address.');
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      await sendPasswordReset(email);
+      setSuccessMessage(
+        language === 'hi'
+          ? `पासवर्ड रीसेट लिंक ${email} पर भेज दी गई है। कृपया अपना ईमेल इनबॉक्स देखें!`
+          : `Password reset link sent to ${email}. Please check your inbox or spam folder!`
+      );
+    } catch (err: any) {
+      console.error('Password Reset Error:', err);
+      if (err.code === 'auth/user-not-found') {
+        setErrorMessage('No user found with this email address.');
+      } else {
+        setErrorMessage(err.message || 'Failed to send reset link via Firebase.');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // ==========================================
+  // 5. PHONE AUTH: SEND OTP
+  // ==========================================
+  const handleSendPhoneOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    const cleanNumber = phoneNumber.replace(/\D/g, '');
+    if (cleanNumber.length < 10) {
+      setErrorMessage(
+        language === 'hi'
+          ? 'कृपया 10 अंकों का वैध मोबाइल नंबर दर्ज करें।'
+          : 'Please enter a valid 10-digit mobile number.'
+      );
+      return;
+    }
+
+    const fullPhoneNumber = `${phoneCountryCode}${cleanNumber.slice(-10)}`;
+    setIsLoading(true);
+
+    try {
+      const appVerifier = setupPhoneRecaptcha('recaptcha-container');
+      const confirmation = await sendPhoneOtp(fullPhoneNumber, appVerifier);
+      setConfirmationResult(confirmation);
+      setPhoneStep('enter_otp');
+      setSuccessMessage(
+        language === 'hi'
+          ? `ओटीपी कोड ${fullPhoneNumber} पर भेजा गया है!`
+          : `SMS verification code sent to ${fullPhoneNumber}!`
+      );
+    } catch (err: any) {
+      console.error('Phone Auth OTP Error:', err);
+      if (err.code === 'auth/invalid-phone-number') {
+        setErrorMessage('Invalid phone number format. Please check the country code and number.');
+      } else if (err.code === 'auth/quota-exceeded') {
+        setErrorMessage('SMS quota exceeded for this project. Please try Google Sign-in or Email/Password.');
+      } else {
+        setErrorMessage(
+          err.message || 'Failed to send SMS code. Make sure Phone provider is enabled in Firebase Console.'
+        );
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // ==========================================
+  // 6. PHONE AUTH: CONFIRM OTP
+  // ==========================================
+  const handleConfirmPhoneOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    if (!confirmationResult) {
+      setErrorMessage('Verification session expired. Please request a new code.');
+      setPhoneStep('enter_phone');
+      return;
+    }
+
+    const cleanOtp = otpCode.trim();
+    if (cleanOtp.length < 6) {
+      setErrorMessage('Please enter the 6-digit OTP code received via SMS.');
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const profile = await confirmPhoneOtp(confirmationResult, cleanOtp, {
+        name: phoneFarmerName.trim() || undefined,
+        phone: `${phoneCountryCode}${phoneNumber.replace(/\D/g, '').slice(-10)}`,
+        preferredLanguage: language
+      });
+
+      setSuccessMessage(
+        language === 'hi' ? 'फोन सत्यापन सफल! साइन इन हो गया।' : 'Phone verified successfully! Signing in...'
+      );
+      setTimeout(() => {
+        onSuccess(profile);
+        onClose();
+      }, 500);
+    } catch (err: any) {
+      console.error('Confirm Phone OTP Error:', err);
+      if (err.code === 'auth/invalid-verification-code') {
+        setErrorMessage('Invalid verification code. Please check your SMS and try again.');
+      } else if (err.code === 'auth/code-expired') {
+        setErrorMessage('Verification code has expired. Please request a new one.');
+      } else {
+        setErrorMessage(err.message || 'Verification failed. Please check the code.');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // ==========================================
+  // 7. QUICK DEMO SIGN-IN HELPER
+  // ==========================================
+  const handleQuickDemoSignIn = (role: 'farmer' | 'admin') => {
+    const demoUser: UserProfile = {
+      id: role === 'admin' ? 'admin-user-1' : 'farmer-pashu-1',
+      name: role === 'admin' ? 'Dr. Sunita Sharma' : 'Ramesh Patil',
+      email: role === 'admin' ? 'admin@pashucare.org' : 'ramesh.patil@kisan.in',
+      phone: '+91 98765 43210',
+      preferredLanguage: language,
+      farmName: 'Patil Dairy & Livestock Farm',
+      farmLocation: 'Nashik, Maharashtra',
+      role: role,
+      createdAt: new Date().toISOString()
+    };
+    setSuccessMessage(`Demo ${role === 'admin' ? 'Admin' : 'Farmer'} logged in successfully!`);
+    setTimeout(() => {
+      onSuccess(demoUser);
+      onClose();
+    }, 400);
   };
 
   if (!isOpen) return null;
 
   return (
-    <div
-      id="auth-modal-overlay"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/60 backdrop-blur-xs overflow-y-auto"
-    >
-      <div
-        id="auth-modal-card"
-        className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-stone-200 overflow-hidden my-6 transition-all"
-      >
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
+      {/* Hidden reCAPTCHA container for Phone Auth */}
+      <div id="recaptcha-container"></div>
+
+      <div className="relative w-full max-w-lg bg-white rounded-2xl sm:rounded-3xl shadow-2xl border border-stone-200 overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-200">
+        
         {/* Modal Header */}
         <div className="p-5 sm:p-6 bg-stone-50 border-b border-stone-100 flex items-center justify-between">
           <div>
-            <h2 className="text-lg sm:text-xl font-black text-stone-900">
-              {activeTab === 'register' ? t('authSignUpTitle') : t('authSignInTitle')}
-            </h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg sm:text-xl font-black text-stone-900">
+                {authMethod === 'phone'
+                  ? 'Phone Authentication'
+                  : activeTab === 'register'
+                  ? t('authSignUpTitle')
+                  : activeTab === 'signin'
+                  ? t('authSignInTitle')
+                  : t('authResetPasswordTitle')}
+              </h2>
+              <span className="px-2 py-0.5 text-[10px] font-extrabold tracking-wide uppercase bg-emerald-100 text-emerald-800 rounded-full border border-emerald-200">
+                Firebase
+              </span>
+            </div>
             <p className="text-xs text-stone-500 mt-0.5">
-              {activeTab === 'register'
-                ? 'Create your verified farmer account to track livestock health'
-                : 'Sign in to access your livestock, health reports & reminders'}
+              {authMethod === 'phone'
+                ? 'Sign in instantly using SMS verification code'
+                : activeTab === 'register'
+                ? 'Create a secure farmer account backed by Firebase & Firestore'
+                : activeTab === 'signin'
+                ? 'Sign in to access your livestock, health reports & real-time data'
+                : t('authResetPasswordSubtitle')}
             </p>
           </div>
           <button
             id="close-auth-modal-btn"
             type="button"
             onClick={onClose}
-            className="p-2 rounded-full text-stone-400 hover:text-stone-700 hover:bg-stone-200/60 transition"
-            aria-label="Close"
+            className="p-2 rounded-xl text-stone-400 hover:text-stone-700 hover:bg-stone-200/60 transition"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="p-5 sm:p-6 space-y-5">
+        {/* Modal Body */}
+        <div className="p-5 sm:p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+          
           {/* Error Message */}
           {errorMessage && (
             <div
@@ -405,349 +478,624 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
           )}
 
-          {/* Single "Continue with Google" Button */}
-          <div className="space-y-2">
-            <button
-              id="continue-with-google-btn"
-              type="button"
-              disabled={isLoading}
-              onClick={() => initiateGoogleSignIn()}
-              className="w-full flex items-center justify-center gap-3 py-3 px-4 rounded-xl border border-stone-300 bg-white hover:bg-stone-50 active:scale-[0.99] text-stone-800 font-bold text-sm shadow-2xs transition disabled:opacity-50"
-            >
-              {isLoading ? (
-                <Loader2 className="w-5 h-5 animate-spin text-stone-600" />
-              ) : (
-                <GoogleIcon />
-              )}
-              <span>{t('authGoogle')}</span>
-            </button>
-          </div>
+          {/* 1. GOOGLE SIGN-IN BUTTON */}
+          <button
+            id="google-signin-btn"
+            type="button"
+            disabled={isGoogleLoading || isLoading}
+            onClick={handleGoogleSignIn}
+            className="w-full py-2.5 px-4 rounded-xl bg-white hover:bg-stone-50 border border-stone-300 text-stone-700 font-bold text-xs sm:text-sm shadow-xs transition flex items-center justify-center gap-2.5 disabled:opacity-60 active:scale-[0.99]"
+          >
+            {isGoogleLoading ? (
+              <Loader2 className="w-4 h-4 animate-spin text-emerald-700" />
+            ) : (
+              <div className="w-4 h-4 rounded-full bg-emerald-600 text-white font-black text-[10px] flex items-center justify-center">
+                G
+              </div>
+            )}
+            <span>{t('authGoogle')}</span>
+          </button>
 
-          {/* Divider */}
-          <div className="relative flex py-1 items-center">
-            <div className="flex-grow border-t border-stone-200" />
-            <span className="flex-shrink mx-3 text-xs text-stone-400 font-bold uppercase tracking-wider">
+          {/* OR DIVIDER */}
+          <div className="relative flex items-center justify-center my-2">
+            <div className="border-t border-stone-200 w-full"></div>
+            <span className="bg-white px-3 text-[11px] font-bold text-stone-400 uppercase tracking-wider">
               {t('authOrDivider')}
             </span>
-            <div className="flex-grow border-t border-stone-200" />
+            <div className="border-t border-stone-200 w-full"></div>
           </div>
 
-          {/* Tab Switcher: Register vs Sign In */}
+          {/* AUTH METHOD SELECTOR: Email/Password vs Phone (SMS) */}
           <div className="flex p-1 bg-stone-100 rounded-xl">
             <button
-              id="tab-register-btn"
+              id="auth-method-email-btn"
               type="button"
               onClick={() => {
-                setActiveTab('register');
+                setAuthMethod('email');
                 setErrorMessage(null);
+                setSuccessMessage(null);
               }}
-              className={`flex-1 py-2 text-xs sm:text-sm font-bold rounded-lg transition ${
-                activeTab === 'register'
+              className={`flex-1 py-2 text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5 ${
+                authMethod === 'email'
                   ? 'bg-white text-emerald-800 shadow-xs'
                   : 'text-stone-600 hover:text-stone-900'
               }`}
             >
-              {t('authTabRegister')}
+              <Mail className="w-3.5 h-3.5" />
+              <span>Email & Password</span>
             </button>
             <button
-              id="tab-signin-btn"
+              id="auth-method-phone-btn"
               type="button"
               onClick={() => {
-                setActiveTab('signin');
+                setAuthMethod('phone');
                 setErrorMessage(null);
+                setSuccessMessage(null);
               }}
-              className={`flex-1 py-2 text-xs sm:text-sm font-bold rounded-lg transition ${
-                activeTab === 'signin'
+              className={`flex-1 py-2 text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5 ${
+                authMethod === 'phone'
                   ? 'bg-white text-emerald-800 shadow-xs'
                   : 'text-stone-600 hover:text-stone-900'
               }`}
             >
-              {t('authTabSignIn')}
+              <Phone className="w-3.5 h-3.5" />
+              <span>Phone SMS (OTP)</span>
             </button>
           </div>
 
-          {/* TAB 1: CREATE ACCOUNT FORM */}
-          {activeTab === 'register' && (
-            <form id="register-form" onSubmit={handleRegisterSubmit} className="space-y-3.5">
-              {/* Name & Surname Fields */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-stone-700 mb-1">
-                    {t('authFirstName')} <span className="text-red-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <User className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      id="reg-first-name-input"
-                      type="text"
-                      required
-                      placeholder="e.g. Ramesh"
-                      value={regFirstName}
-                      onChange={(e) => setRegFirstName(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-600"
-                    />
+          {/* ========================================================= */}
+          {/* SECTION A: PHONE AUTHENTICATION WITH FIREBASE */}
+          {/* ========================================================= */}
+          {authMethod === 'phone' && (
+            <div className="space-y-4">
+              {phoneStep === 'enter_phone' ? (
+                <form id="phone-auth-send-form" onSubmit={handleSendPhoneOtp} className="space-y-3.5">
+                  <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200 text-emerald-900 text-xs flex items-start gap-2.5">
+                    <Smartphone className="w-4 h-4 text-emerald-700 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold">Firebase Phone Authentication</p>
+                      <p className="text-[11px] text-emerald-800">
+                        Enter your mobile phone number. A secure 6-digit SMS verification code will be sent to your device.
+                      </p>
+                    </div>
                   </div>
-                </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-stone-700 mb-1">
-                    {t('authLastName')} <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    id="reg-last-name-input"
-                    type="text"
-                    required
-                    placeholder="e.g. Patil"
-                    value={regLastName}
-                    onChange={(e) => setRegLastName(e.target.value)}
-                    className="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-600"
-                  />
-                </div>
-              </div>
-
-              {/* Username Field */}
-              <div>
-                <label className="block text-xs font-bold text-stone-700 mb-1">
-                  {t('authUsername')} <span className="text-red-500">*</span>
-                </label>
-                <input
-                  id="reg-username-input"
-                  type="text"
-                  required
-                  placeholder="e.g. ramesh_kisan"
-                  value={regUsername}
-                  onChange={(e) => setRegUsername(e.target.value.toLowerCase().replace(/\s+/g, ''))}
-                  className="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-stone-300 font-mono focus:outline-none focus:ring-2 focus:ring-emerald-600"
-                />
-              </div>
-
-              {/* Email or Mobile Number */}
-              <div>
-                <label className="block text-xs font-bold text-stone-700 mb-1">
-                  {t('authPhoneOrEmail')} <span className="text-red-500">*</span>
-                </label>
-                <div className="relative">
-                  <Mail className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    id="reg-contact-input"
-                    type="text"
-                    required
-                    placeholder="e.g. farmer@example.com or +91 98765 43210"
-                    value={regContact}
-                    onChange={(e) => setRegContact(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-600"
-                  />
-                </div>
-              </div>
-
-              {/* Password & Confirm Password */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-stone-700 mb-1">
-                    {t('authPassword')} <span className="text-red-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <Lock className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      id="reg-password-input"
-                      type="password"
-                      required
-                      minLength={4}
-                      placeholder="Min 4 characters"
-                      value={regPassword}
-                      onChange={(e) => setRegPassword(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-600"
-                    />
+                  <div>
+                    <label className="block text-xs font-bold text-stone-700 mb-1">
+                      Farmer Full Name (Optional)
+                    </label>
+                    <div className="relative">
+                      <User className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        id="phone-farmer-name-input"
+                        type="text"
+                        placeholder="e.g. Ramesh Patil"
+                        value={phoneFarmerName}
+                        onChange={(e) => setPhoneFarmerName(e.target.value)}
+                        className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                      />
+                    </div>
                   </div>
-                </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-stone-700 mb-1">
-                    {t('authConfirmPassword')} <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    id="reg-confirm-password-input"
-                    type="password"
-                    required
-                    minLength={4}
-                    placeholder="Re-enter password"
-                    value={regConfirmPassword}
-                    onChange={(e) => setRegConfirmPassword(e.target.value)}
-                    className="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-600"
-                  />
-                </div>
-              </div>
-
-              {/* Farm Name & Location */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                <div>
-                  <label className="block text-xs font-bold text-stone-700 mb-1">
-                    {t('authFarmName')}
-                  </label>
-                  <div className="relative">
-                    <Building className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      id="reg-farm-name-input"
-                      type="text"
-                      placeholder="e.g. Kisan Dairy Farm"
-                      value={regFarmName}
-                      onChange={(e) => setRegFarmName(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-600"
-                    />
+                  <div>
+                    <label className="block text-xs font-bold text-stone-700 mb-1">
+                      {language === 'hi' ? 'मोबाइल नंबर' : 'Mobile Phone Number'} <span className="text-red-500">*</span>
+                    </label>
+                    <div className="flex gap-2">
+                      <select
+                        value={phoneCountryCode}
+                        onChange={(e) => setPhoneCountryCode(e.target.value)}
+                        className="px-2.5 py-2 text-xs sm:text-sm rounded-xl border border-stone-300 bg-stone-50 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                      >
+                        <option value="+91">🇮🇳 +91 (India)</option>
+                        <option value="+1">🇺🇸 +1 (US)</option>
+                        <option value="+44">🇬🇧 +44 (UK)</option>
+                        <option value="+880">🇧🇩 +880 (BD)</option>
+                        <option value="+977">🇳🇵 +977 (NP)</option>
+                      </select>
+                      <div className="relative flex-1">
+                        <Phone className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          id="phone-number-input"
+                          type="tel"
+                          required
+                          placeholder="98765 43210"
+                          value={phoneNumber}
+                          onChange={(e) => setPhoneNumber(e.target.value)}
+                          className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-600 font-mono tracking-wider"
+                        />
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-stone-400 mt-1">
+                      {language === 'hi'
+                        ? 'हम आपको Firebase प्रमाणीकरण द्वारा एकमुश्त पासवर्ड (OTP) भेजेंगे।'
+                        : 'Firebase will deliver an SMS OTP to verify your account.'}
+                    </p>
                   </div>
-                </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-stone-700 mb-1">
-                    {t('authFarmLocation')}
-                  </label>
-                  <div className="relative">
-                    <MapPin className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      id="reg-farm-location-input"
-                      type="text"
-                      placeholder="e.g. Pune, Maharashtra"
-                      value={regFarmLocation}
-                      onChange={(e) => setRegFarmLocation(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-600"
-                    />
+                  <button
+                    id="submit-send-otp-btn"
+                    type="submit"
+                    disabled={isLoading}
+                    className="w-full py-3 px-4 rounded-xl bg-emerald-700 hover:bg-emerald-800 active:scale-[0.99] text-white font-bold text-sm shadow-md transition flex items-center justify-center gap-2 disabled:opacity-60"
+                  >
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Sending SMS OTP...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Phone className="w-4 h-4" />
+                        <span>{t('authSendOtp')}</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+              ) : (
+                <form id="phone-auth-verify-form" onSubmit={handleConfirmPhoneOtp} className="space-y-3.5">
+                  <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2.5">
+                    <ShieldCheck className="w-4 h-4 text-amber-700 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold">Enter SMS Code</p>
+                      <p className="text-[11px] text-amber-800">
+                        Enter the 6-digit code sent to {phoneCountryCode} {phoneNumber}.
+                      </p>
+                    </div>
                   </div>
-                </div>
-              </div>
 
-              {/* Submit Button */}
-              <button
-                id="submit-register-btn"
-                type="submit"
-                disabled={isLoading}
-                className="w-full mt-2 py-3 px-4 rounded-xl bg-emerald-700 hover:bg-emerald-800 active:scale-[0.99] text-white font-bold text-sm shadow-md transition flex items-center justify-center gap-2 disabled:opacity-60"
-              >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Creating Account...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>{t('authRegisterBtn')}</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </button>
+                  <div>
+                    <label className="block text-xs font-bold text-stone-700 mb-1">
+                      {t('authEnterOtp')} <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <KeyRound className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        id="phone-otp-input"
+                        type="text"
+                        required
+                        maxLength={6}
+                        autoFocus
+                        placeholder="123456"
+                        value={otpCode}
+                        onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                        className="w-full pl-9 pr-3 py-2.5 text-center text-lg font-mono font-black tracking-widest rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                      />
+                    </div>
+                  </div>
 
-              {/* Switch link */}
-              <div className="text-center pt-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveTab('signin');
-                    setErrorMessage(null);
-                  }}
-                  className="text-xs text-stone-600 hover:text-emerald-700 font-semibold"
-                >
-                  {t('authSwitchToSignIn')}
-                </button>
-              </div>
-            </form>
+                  <button
+                    id="submit-verify-otp-btn"
+                    type="submit"
+                    disabled={isLoading}
+                    className="w-full py-3 px-4 rounded-xl bg-emerald-700 hover:bg-emerald-800 active:scale-[0.99] text-white font-bold text-sm shadow-md transition flex items-center justify-center gap-2 disabled:opacity-60"
+                  >
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Verifying Code...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>{t('authVerifyOtp')}</span>
+                      </>
+                    )}
+                  </button>
+
+                  <div className="flex items-center justify-between text-xs pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPhoneStep('enter_phone');
+                        setErrorMessage(null);
+                        setOtpCode('');
+                      }}
+                      className="text-stone-600 hover:text-emerald-700 font-semibold inline-flex items-center gap-1"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                      <span>Change Phone Number</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSendPhoneOtp}
+                      disabled={isLoading}
+                      className="text-emerald-700 hover:text-emerald-800 font-bold hover:underline"
+                    >
+                      Resend Code
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
           )}
 
-          {/* TAB 2: SIGN IN FORM */}
-          {activeTab === 'signin' && (
-            <form id="signin-form" onSubmit={handleSignInSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-stone-700 mb-1">
-                  {t('authUsername')} / {t('authPhoneOrEmail')}
-                </label>
-                <div className="relative">
-                  <User className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    id="signin-identifier-input"
-                    type="text"
-                    required
-                    placeholder="Enter username, email, or phone"
-                    value={signInIdentifier}
-                    onChange={(e) => setSignInIdentifier(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2.5 text-xs sm:text-sm rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-600"
-                  />
+          {/* ========================================================= */}
+          {/* SECTION B: EMAIL & PASSWORD AUTHENTICATION */}
+          {/* ========================================================= */}
+          {authMethod === 'email' && (
+            <div className="space-y-4">
+              {/* Tab Switcher: Register vs Sign In */}
+              {activeTab !== 'forgot_password' ? (
+                <div className="flex p-1 bg-stone-100 rounded-xl">
+                  <button
+                    id="tab-register-btn"
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('register');
+                      setErrorMessage(null);
+                      setSuccessMessage(null);
+                    }}
+                    className={`flex-1 py-1.5 text-xs sm:text-sm font-bold rounded-lg transition ${
+                      activeTab === 'register'
+                        ? 'bg-white text-emerald-800 shadow-xs'
+                        : 'text-stone-600 hover:text-stone-900'
+                    }`}
+                  >
+                    {t('authTabRegister')}
+                  </button>
+                  <button
+                    id="tab-signin-btn"
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('signin');
+                      setErrorMessage(null);
+                      setSuccessMessage(null);
+                    }}
+                    className={`flex-1 py-1.5 text-xs sm:text-sm font-bold rounded-lg transition ${
+                      activeTab === 'signin'
+                        ? 'bg-white text-emerald-800 shadow-xs'
+                        : 'text-stone-600 hover:text-stone-900'
+                    }`}
+                  >
+                    {t('authTabSignIn')}
+                  </button>
                 </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-stone-700 mb-1">
-                  {t('authPassword')}
-                </label>
-                <div className="relative">
-                  <Lock className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    id="signin-password-input"
-                    type="password"
-                    required
-                    placeholder="Enter your password"
-                    value={signInPassword}
-                    onChange={(e) => setSignInPassword(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2.5 text-xs sm:text-sm rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-600"
-                  />
+              ) : (
+                <div className="flex items-center justify-between py-0.5">
+                  <button
+                    type="button"
+                    id="header-back-to-signin-btn"
+                    onClick={() => {
+                      setActiveTab('signin');
+                      setErrorMessage(null);
+                      setSuccessMessage(null);
+                    }}
+                    className="inline-flex items-center gap-1.5 text-xs text-emerald-700 hover:text-emerald-800 font-bold transition hover:underline"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>{t('authBackToSignIn')}</span>
+                  </button>
+                  <span className="text-[11px] text-stone-400 font-medium">Firebase Authentication</span>
                 </div>
-              </div>
+              )}
 
-              {/* Submit Button */}
-              <button
-                id="submit-signin-btn"
-                type="submit"
-                disabled={isLoading}
-                className="w-full py-3 px-4 rounded-xl bg-emerald-700 hover:bg-emerald-800 active:scale-[0.99] text-white font-bold text-sm shadow-md transition flex items-center justify-center gap-2 disabled:opacity-60"
-              >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Signing in...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>{t('authSignInBtn')}</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </button>
+              {/* B1: CREATE ACCOUNT FORM */}
+              {activeTab === 'register' && (
+                <form id="register-form" onSubmit={handleRegisterSubmit} className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-xs font-bold text-stone-700 mb-1">
+                        {t('authFirstName')} <span className="text-red-500">*</span>
+                      </label>
+                      <div className="relative">
+                        <User className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          id="reg-first-name-input"
+                          type="text"
+                          required
+                          placeholder="e.g. Ramesh"
+                          value={regFirstName}
+                          onChange={(e) => setRegFirstName(e.target.value)}
+                          className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                        />
+                      </div>
+                    </div>
 
-              {/* Switch link */}
-              <div className="text-center pt-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveTab('register');
-                    setErrorMessage(null);
-                  }}
-                  className="text-xs text-stone-600 hover:text-emerald-700 font-semibold"
-                >
-                  {t('authSwitchToRegister')}
-                </button>
-              </div>
-            </form>
+                    <div>
+                      <label className="block text-xs font-bold text-stone-700 mb-1">
+                        {t('authLastName')} <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        id="reg-last-name-input"
+                        type="text"
+                        required
+                        placeholder="e.g. Patil"
+                        value={regLastName}
+                        onChange={(e) => setRegLastName(e.target.value)}
+                        className="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-stone-700 mb-1">
+                      Email Address <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <Mail className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        id="reg-email-input"
+                        type="email"
+                        required
+                        placeholder="farmer@example.com"
+                        value={regEmail}
+                        onChange={(e) => setRegEmail(e.target.value)}
+                        className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-stone-700 mb-1">
+                      Mobile Phone (Optional)
+                    </label>
+                    <div className="relative">
+                      <Phone className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        id="reg-phone-input"
+                        type="tel"
+                        placeholder="+91 98765 43210"
+                        value={regPhone}
+                        onChange={(e) => setRegPhone(e.target.value)}
+                        className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-xs font-bold text-stone-700 mb-1">
+                        {t('authPassword')} <span className="text-red-500">*</span>
+                      </label>
+                      <div className="relative">
+                        <Lock className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          id="reg-password-input"
+                          type="password"
+                          required
+                          placeholder="Min 6 characters"
+                          value={regPassword}
+                          onChange={(e) => setRegPassword(e.target.value)}
+                          className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-stone-700 mb-1">
+                        {t('authConfirmPassword')} <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        id="reg-confirm-password-input"
+                        type="password"
+                        required
+                        placeholder="Re-type password"
+                        value={regConfirmPassword}
+                        onChange={(e) => setRegConfirmPassword(e.target.value)}
+                        className="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-xs font-bold text-stone-700 mb-1">
+                        {t('authFarmName')}
+                      </label>
+                      <div className="relative">
+                        <Building className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          id="reg-farm-name-input"
+                          type="text"
+                          placeholder="e.g. Patil Dairy Farm"
+                          value={regFarmName}
+                          onChange={(e) => setRegFarmName(e.target.value)}
+                          className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-stone-700 mb-1">
+                        {t('authFarmLocation')}
+                      </label>
+                      <input
+                        id="reg-farm-loc-input"
+                        type="text"
+                        placeholder="e.g. Nashik, Maharashtra"
+                        value={regFarmLocation}
+                        onChange={(e) => setRegFarmLocation(e.target.value)}
+                        className="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    id="submit-register-btn"
+                    type="submit"
+                    disabled={isLoading}
+                    className="w-full mt-2 py-3 px-4 rounded-xl bg-emerald-700 hover:bg-emerald-800 active:scale-[0.99] text-white font-bold text-sm shadow-md transition flex items-center justify-center gap-2 disabled:opacity-60"
+                  >
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Creating Firebase Account...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>{t('authRegisterBtn')}</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </>
+                    )}
+                  </button>
+                </form>
+              )}
+
+              {/* B2: SIGN IN FORM */}
+              {activeTab === 'signin' && (
+                <form id="signin-form" onSubmit={handleSignInSubmit} className="space-y-3.5">
+                  <div>
+                    <label className="block text-xs font-bold text-stone-700 mb-1">
+                      Email Address <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <Mail className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        id="signin-email-input"
+                        type="email"
+                        required
+                        placeholder="farmer@example.com"
+                        value={signInEmail}
+                        onChange={(e) => setSignInEmail(e.target.value)}
+                        className="w-full pl-9 pr-3 py-2.5 text-xs sm:text-sm rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-bold text-stone-700">
+                        {t('authPassword')} <span className="text-red-500">*</span>
+                      </label>
+                      <button
+                        type="button"
+                        id="forgot-password-link-btn"
+                        onClick={() => {
+                          setActiveTab('forgot_password');
+                          setErrorMessage(null);
+                          setSuccessMessage(null);
+                          if (signInEmail.includes('@')) {
+                            setForgotEmail(signInEmail.trim());
+                          }
+                        }}
+                        className="text-xs text-emerald-700 hover:text-emerald-800 font-bold hover:underline transition"
+                      >
+                        {t('authForgotPassword')}
+                      </button>
+                    </div>
+                    <div className="relative">
+                      <Lock className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        id="signin-password-input"
+                        type="password"
+                        required
+                        placeholder="Enter your password"
+                        value={signInPassword}
+                        onChange={(e) => setSignInPassword(e.target.value)}
+                        className="w-full pl-9 pr-3 py-2.5 text-xs sm:text-sm rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    id="submit-signin-btn"
+                    type="submit"
+                    disabled={isLoading}
+                    className="w-full py-3 px-4 rounded-xl bg-emerald-700 hover:bg-emerald-800 active:scale-[0.99] text-white font-bold text-sm shadow-md transition flex items-center justify-center gap-2 disabled:opacity-60"
+                  >
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Signing in with Firebase...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>{t('authSignInBtn')}</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </>
+                    )}
+                  </button>
+                </form>
+              )}
+
+              {/* B3: FORGOT PASSWORD FORM */}
+              {activeTab === 'forgot_password' && (
+                <form id="forgot-password-form" onSubmit={handleForgotPasswordSubmit} className="space-y-4">
+                  <div className="p-3.5 rounded-2xl bg-amber-50/80 border border-amber-200 text-xs text-amber-900 flex items-start gap-3">
+                    <div className="p-2 rounded-xl bg-amber-100 text-amber-800 flex-shrink-0">
+                      <KeyRound className="w-4 h-4" />
+                    </div>
+                    <div className="space-y-1">
+                      <p className="font-bold text-amber-950">
+                        {t('authResetPasswordTitle')}
+                      </p>
+                      <p className="text-amber-800 leading-relaxed text-[11.5px]">
+                        {t('authResetPasswordSubtitle')}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-stone-700 mb-1">
+                      Registered Email Address <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <Mail className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        id="forgot-password-email-input"
+                        type="email"
+                        required
+                        autoFocus
+                        placeholder="farmer@example.com"
+                        value={forgotEmail}
+                        onChange={(e) => setForgotEmail(e.target.value)}
+                        className="w-full pl-9 pr-3 py-2.5 text-xs sm:text-sm rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    id="submit-forgot-password-btn"
+                    type="submit"
+                    disabled={isLoading}
+                    className="w-full py-3 px-4 rounded-xl bg-emerald-700 hover:bg-emerald-800 active:scale-[0.99] text-white font-bold text-sm shadow-md transition flex items-center justify-center gap-2 disabled:opacity-60"
+                  >
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Sending Reset Link...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Mail className="w-4 h-4" />
+                        <span>{t('authSendResetLink')}</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+              )}
+            </div>
           )}
+
+          {/* ========================================================= */}
+          {/* SECTION C: DEMO QUICK SIGN-IN OPTIONS */}
+          {/* ========================================================= */}
+          <div className="pt-2 border-t border-stone-100 space-y-2">
+            <p className="text-[11px] font-bold text-stone-400 text-center uppercase tracking-wider">
+              Testing & Evaluation
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                id="demo-farmer-login-btn"
+                type="button"
+                onClick={() => handleQuickDemoSignIn('farmer')}
+                className="py-2 px-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold text-[11px] transition text-center"
+              >
+                {t('authDemoLogin')}
+              </button>
+              <button
+                id="demo-admin-login-btn"
+                type="button"
+                onClick={() => handleQuickDemoSignIn('admin')}
+                className="py-2 px-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold text-[11px] transition text-center"
+              >
+                {t('authAdminLogin')}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   );
 };
-
-const GoogleIcon = () => (
-  <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24">
-    <path
-      fill="#4285F4"
-      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-    />
-    <path
-      fill="#34A853"
-      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-    />
-    <path
-      fill="#FBBC05"
-      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-    />
-    <path
-      fill="#EA4335"
-      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-    />
-  </svg>
-);

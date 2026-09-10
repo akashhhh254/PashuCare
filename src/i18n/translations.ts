@@ -246,6 +246,11 @@ export const translations = {
     authDemoLogin: 'Quick Demo Sign In (Farmer)',
     authAdminLogin: 'Demo Sign In (Admin)',
     authOtpSent: 'OTP sent! For demo/test mode, you can use: 123456',
+    authForgotPassword: 'Forgot Password?',
+    authResetPasswordTitle: 'Reset Password',
+    authResetPasswordSubtitle: 'Enter your registered email address to receive a secure password reset link via Firebase Authentication.',
+    authSendResetLink: 'Send Reset Link',
+    authBackToSignIn: 'Back to Sign In',
 
     // Admin
     adminDashboard: 'PashuCare AI Administration',
@@ -534,6 +539,11 @@ export const translations = {
     authDemoLogin: 'डेमो किसान लॉगिन',
     authAdminLogin: 'एडमिन लॉगिन',
     authOtpSent: 'ओटीपी भेजा गया! डेमो मोड में आप 123456 का उपयोग कर सकते हैं।',
+    authForgotPassword: 'पासवर्ड भूल गए?',
+    authResetPasswordTitle: 'पासवर्ड रीसेट करें',
+    authResetPasswordSubtitle: 'Firebase Authentication के माध्यम से सुरक्षित पासवर्ड रीसेट लिंक प्राप्त करने के लिए अपना पंजीकृत ईमेल दर्ज करें।',
+    authSendResetLink: 'रीसेट लिंक भेजें',
+    authBackToSignIn: 'साइन इन पर वापस जाएं',
 
     // Admin
     adminDashboard: 'पशुकेयर AI प्रशासन',
@@ -822,6 +832,11 @@ export const translations = {
     authDemoLogin: 'डेमो शेतकरी लॉगिन',
     authAdminLogin: 'अ‍ॅडमिन लॉगिन',
     authOtpSent: 'ओटीपी पाठवला आहे! डेमोसाठी १२३४५६ वापरू शकता.',
+    authForgotPassword: 'पासवर्ड विसरलात?',
+    authResetPasswordTitle: 'पासवर्ड रीसेट करा',
+    authResetPasswordSubtitle: 'Firebase Authentication द्वारे सुरक्षित पासवर्ड रीसेट लिंक मिळवण्यासाठी आपला नोंदणीकृत ईमेल प्रविष्ट करा.',
+    authSendResetLink: 'रीसेट लिंक पाठवा',
+    authBackToSignIn: 'साइन इन वर परत जा',
 
     // Admin
     adminDashboard: 'पशूकेअर AI प्रशासन',
