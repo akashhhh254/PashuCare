@@ -59,10 +59,7 @@ export const Header: React.FC<HeaderProps> = ({
     { id: 'check', label: t('navHealthCheck'), icon: HeartPulse, highlight: true },
     { id: 'animals', label: t('navMyAnimals'), icon: Users },
     { id: 'history', label: t('navHistory'), icon: Activity },
-    { id: 'reminders', label: t('navReminders'), icon: Calendar },
-    { id: 'vet', label: t('navVeterinarian'), icon: PhoneCall },
     { id: 'diseases', label: t('navDiseases'), icon: BookOpen },
-    { id: 'about', label: t('navAbout'), icon: Info },
     ...(user?.role === 'admin' ? [{ id: 'admin', label: t('navAdmin'), icon: Shield }] : [])
   ];
 
@@ -85,7 +82,7 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-stone-200 shadow-2xs">
       {/* Top emergency & accessibility utility bar */}
-      <div className="bg-emerald-800 text-emerald-50 text-xs py-1 px-4">
+      <div className="bg-emerald-900 text-emerald-50 text-xs py-1.5 px-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
             <span className="flex items-center gap-1.5 font-medium">
@@ -93,15 +90,13 @@ export const Header: React.FC<HeaderProps> = ({
               <span>National Animal Helpline: <strong>1962</strong> (Toll-Free 24x7)</span>
             </span>
           </div>
-          <div className="flex items-center gap-4 text-emerald-100">
+          <div className="flex items-center gap-4 text-emerald-200 text-xs">
             <button
               onClick={onOpenPrivacy}
               className="hover:text-white transition underline cursor-pointer"
             >
-              Privacy & Farmers Rights
+              Veterinary Advisory Disclaimer
             </button>
-            <span className="hidden sm:inline">|</span>
-            <span className="hidden sm:inline text-emerald-200">Kisan Call Center: 1800-180-1551</span>
           </div>
         </div>
       </div>
@@ -116,15 +111,15 @@ export const Header: React.FC<HeaderProps> = ({
             onClick={() => handleNavClick('home')}
             className="flex items-center gap-3 cursor-pointer group"
           >
-            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-gradient-to-br from-emerald-600 to-emerald-800 flex items-center justify-center text-white shadow-md group-hover:scale-105 transition">
-              <HeartPulse className="w-6 h-6 text-emerald-100" />
+            <div className="w-10 h-10 rounded-xl bg-emerald-800 flex items-center justify-center text-white shadow-sm">
+              <HeartPulse className="w-5 h-5 text-emerald-100" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-extrabold text-lg sm:text-xl text-stone-900 tracking-tight">
-                  PashuCare <span className="text-emerald-700 font-bold">AI</span>
+                <span className="font-bold text-lg sm:text-xl text-stone-900 tracking-tight">
+                  PashuCare <span className="text-emerald-800">AI</span>
                 </span>
-                <span className="hidden md:inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 uppercase tracking-wide">
+                <span className="hidden md:inline-flex px-2 py-0.5 rounded text-[10px] font-semibold bg-stone-100 text-stone-700 border border-stone-200">
                   Livestock Health
                 </span>
               </div>
@@ -134,51 +129,30 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Desktop Nav Links (Only shown when user is logged in) */}
-          {user ? (
-            <nav className="hidden lg:flex items-center gap-1 xl:gap-2">
-              {navItems.map((item) => {
-                const Icon = item.icon;
-                const isActive = effectiveTab === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    id={`nav-${item.id}`}
-                    onClick={() => handleNavClick(item.id)}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold transition ${
-                      item.highlight
-                        ? 'bg-emerald-700 text-white hover:bg-emerald-800 shadow-sm'
-                        : isActive
-                        ? 'bg-emerald-50 text-emerald-800'
-                        : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100'
-                    }`}
-                  >
-                    <Icon className={`w-4 h-4 ${item.highlight ? 'text-white' : isActive ? 'text-emerald-700' : 'text-stone-400'}`} />
-                    <span>{item.label}</span>
-                  </button>
-                );
-              })}
-            </nav>
-          ) : (
-            <div className="hidden lg:flex items-center gap-6 text-xs text-stone-600 font-medium">
-              <span className="flex items-center gap-1 text-emerald-800 font-bold bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
-                <HeartPulse className="w-3.5 h-3.5 text-emerald-700" />
-                <span>AI Livestock Diagnostic Platform</span>
-              </span>
-              <button
-                onClick={onOpenPrivacy}
-                className="hover:text-emerald-700 transition"
-              >
-                Medical Charter
-              </button>
-              <a
-                href="tel:1962"
-                className="text-red-700 hover:underline font-bold"
-              >
-                Emergency: 1962
-              </a>
-            </div>
-          )}
+          {/* Desktop Nav Links */}
+          <nav className="hidden lg:flex items-center gap-1 xl:gap-2">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = effectiveTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  id={`nav-${item.id}`}
+                  onClick={() => handleNavClick(item.id)}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold transition cursor-pointer ${
+                    item.highlight
+                      ? 'bg-emerald-800 text-white hover:bg-emerald-900 shadow-xs'
+                      : isActive
+                      ? 'bg-stone-100 text-emerald-900'
+                      : 'text-stone-700 hover:text-stone-900 hover:bg-stone-50'
+                  }`}
+                >
+                  <Icon className={`w-4 h-4 ${item.highlight ? 'text-white' : isActive ? 'text-emerald-800' : 'text-stone-500'}`} />
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
+          </nav>
 
           {/* Action Tools: Language, PWA, User */}
           <div className="flex items-center gap-2 sm:gap-3">

@@ -16,7 +16,8 @@ import {
   Stethoscope,
   Clock,
   Droplets,
-  Utensils
+  Utensils,
+  HeartPulse
 } from 'lucide-react';
 import { AnimalCategory, Language, AnimalProfile, HealthReport } from '../types';
 import { translations, getTranslation } from '../i18n/translations';
@@ -89,6 +90,7 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisStep, setAnalysisStep] = useState(0);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [isLongRunning, setIsLongRunning] = useState(false);
 
   // Dynamically load category-specific symptoms
   const categorySymptoms = useMemo(() => {
@@ -359,10 +361,12 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
 
     setIsAnalyzing(true);
     setAnalysisStep(0);
+    setIsLongRunning(false);
 
-    const timer1 = setTimeout(() => setAnalysisStep(1), 1200);
-    const timer2 = setTimeout(() => setAnalysisStep(2), 2600);
-    const timer3 = setTimeout(() => setAnalysisStep(3), 4200);
+    const timer1 = setTimeout(() => setAnalysisStep(1), 1400);
+    const timer2 = setTimeout(() => setAnalysisStep(2), 3000);
+    const timer3 = setTimeout(() => setAnalysisStep(3), 4800);
+    const longTimer = setTimeout(() => setIsLongRunning(true), 7000);
 
     try {
       const response = await safeFetchJson<{
@@ -396,6 +400,7 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
       clearTimeout(timer1);
       clearTimeout(timer2);
       clearTimeout(timer3);
+      clearTimeout(longTimer);
 
       if (!response.ok || !response.data?.success) {
         const errorMsg =
@@ -410,7 +415,14 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
       // Validate & normalize AI result against strict schema
       const normalizedResult = validateAndNormalizeAIResponse(
         response.data.result,
-        finalSpecies
+        {
+          species: finalSpecies,
+          animalName: animalNameInput || `${finalSpecies} #${Math.floor(100 + Math.random() * 900)}`,
+          breed: breedInput,
+          age: ageInput,
+          sex: sexInput,
+          symptoms: selectedSymptoms
+        }
       );
 
       // Save report to server API
@@ -458,25 +470,41 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
   };
 
   const loadingMessages = [
-    t('loading1'),
-    t('loading2'),
-    t('loading3'),
-    t('loading4'),
+    language === 'hi'
+      ? '1. पशु का विश्लेषण किया जा रहा है...'
+      : language === 'mr'
+      ? '1. जनावराचे विश्लेषण सुरू आहे...'
+      : '1. Analyzing animal...',
+    language === 'hi'
+      ? '2. लक्षणों की जांच की जा रही है...'
+      : language === 'mr'
+      ? '2. लक्षणे तपासली जात आहेत...'
+      : '2. Checking symptoms...',
+    language === 'hi'
+      ? '3. स्वास्थ्य संकेतकों की समीक्षा हो रही है...'
+      : language === 'mr'
+      ? '3. आरोग्य निर्देशकांचे पुनरावलोकन होत आहे...'
+      : '3. Reviewing health indicators...',
+    language === 'hi'
+      ? '4. स्वास्थ्य मूल्यांकन तैयार किया जा रहा है...'
+      : language === 'mr'
+      ? '4. आरोग्य मूल्यांकन तयार होत आहे...'
+      : '4. Preparing assessment...',
   ];
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 sm:py-8">
       {/* Page Header */}
-      <div className="text-center mb-8">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold mb-3 shadow-2xs">
-          <Stethoscope className="w-3.5 h-3.5" />
-          <span>Multimodal Veterinary Intelligence</span>
-        </div>
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-stone-900 tracking-tight">
-          {t('heroHeadline')}
+      <div className="text-center mb-6">
+        <h1 className="text-2xl sm:text-3xl font-bold text-stone-900 tracking-tight">
+          {language === 'hi' ? 'पशु स्वास्थ्य जांच' : language === 'mr' ? 'जनावराचे आरोग्य तपासणी' : 'Check Animal Health'}
         </h1>
-        <p className="mt-2 text-sm text-stone-600 max-w-xl mx-auto">
-          {t('heroSubheading')}
+        <p className="mt-1.5 text-xs sm:text-sm text-stone-600 max-w-xl mx-auto">
+          {language === 'hi'
+            ? 'पशु का चयन करें, फोटो जोड़ें (वैकल्पिक) और प्राथमिक स्वास्थ्य मूल्यांकन प्राप्त करें।'
+            : language === 'mr'
+            ? 'जनावर निवडा, फोटो जोडा (पर्यायी) आणि प्राथमिक आरोग्य मूल्यांकन मिळवा.'
+            : 'Select an animal, add an optional photo, and select symptoms to receive a preliminary health assessment.'}
         </p>
       </div>
 
@@ -1179,6 +1207,19 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
             </div>
           )}
 
+          {/* Long running progress message */}
+          {isAnalyzing && isLongRunning && (
+            <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs sm:text-sm text-center font-medium">
+              <span>
+                {language === 'hi'
+                  ? 'विश्लेषण में सामान्य से अधिक समय लग रहा है। कृपया इस पृष्ठ को खुला रखें।'
+                  : language === 'mr'
+                  ? 'तपासणीसाठी नेहमीपेक्षा जास्त वेळ लागत आहे. कृपया हे पृष्ठ उघडे ठेवा.'
+                  : 'Analysis is taking longer than usual. Please keep this page open.'}
+              </span>
+            </div>
+          )}
+
           {/* Submit Action Button */}
           <div className="pt-2">
             <button
@@ -1186,7 +1227,7 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
               id="start-ai-analysis-btn"
               disabled={isAnalyzing}
               onClick={handleRunAnalysis}
-              className={`w-full py-3.5 px-6 rounded-xl font-bold text-white text-base shadow-md transition flex items-center justify-center gap-2 cursor-pointer ${
+              className={`w-full py-3.5 px-6 rounded-xl font-bold text-white text-base shadow-sm transition flex items-center justify-center gap-2 cursor-pointer ${
                 isAnalyzing
                   ? 'bg-stone-400 cursor-not-allowed'
                   : 'bg-emerald-700 hover:bg-emerald-800 active:scale-[0.99]'
@@ -1194,14 +1235,19 @@ export const HealthCheckForm: React.FC<HealthCheckFormProps> = ({
             >
               {isAnalyzing ? (
                 <>
-                  <RefreshCw className="w-5 h-5 animate-spin" />
-                  <span>{loadingMessages[analysisStep] || t('analyzingTitle')}</span>
+                  <RefreshCw className="w-5 h-5 animate-spin text-white" />
+                  <span>{loadingMessages[analysisStep] || loadingMessages[0]}</span>
                 </>
               ) : (
                 <>
-                  <Sparkles className="w-5 h-5 text-emerald-200" />
-                  <span>{t('analyzeBtn')}</span>
-                  <ChevronRight className="w-4 h-4" />
+                  <HeartPulse className="w-5 h-5 text-emerald-100" />
+                  <span>
+                    {language === 'hi'
+                      ? 'पशु स्वास्थ्य का विश्लेषण करें (Analyze Animal)'
+                      : language === 'mr'
+                      ? 'जनावराचे आरोग्य तपासा (Analyze Animal)'
+                      : 'Analyze Animal'}
+                  </span>
                 </>
               )}
             </button>

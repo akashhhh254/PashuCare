@@ -119,6 +119,33 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
     generateHealthReportPDF(report);
   };
 
+  const getStatusBanner = () => {
+    const risk = result?.riskLevel?.toLowerCase() || '';
+    if (risk === 'emergency' || result?.emergency) {
+      return {
+        label: 'URGENT',
+        bg: 'bg-red-700 text-white border-red-800'
+      };
+    }
+    if (risk === 'high') {
+      return {
+        label: 'VETERINARY ATTENTION',
+        bg: 'bg-orange-600 text-white border-orange-700'
+      };
+    }
+    if (risk === 'medium') {
+      return {
+        label: 'MONITOR',
+        bg: 'bg-amber-500 text-white border-amber-600'
+      };
+    }
+    return {
+      label: 'LOW CONCERN',
+      bg: 'bg-emerald-700 text-white border-emerald-800'
+    };
+  };
+  const statusBanner = getStatusBanner();
+
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 sm:py-8">
       {/* Top back & actions bar */}
@@ -236,10 +263,10 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-full">
-                Preliminary Assessment
+                Preliminary Health Assessment
               </span>
-              <h1 className="text-xl sm:text-2xl font-extrabold text-stone-900 mt-2">
-                {t('reportTitle')}
+              <h1 className="text-xl sm:text-2xl font-bold text-stone-900 mt-2">
+                Animal Health Assessment
               </h1>
               <p className="text-xs text-stone-500 mt-1 flex items-center gap-2">
                 <span>Code: <strong>{report.reportCode || report.id}</strong></span>
@@ -251,23 +278,17 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
             {/* Overall Status Badge */}
             <div className="text-right">
               <span
-                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-extrabold border ${
-                  report.result?.riskLevel === 'Emergency' || report.result?.riskLevel === 'High'
-                    ? 'bg-red-100 text-red-800 border-red-200'
-                    : report.result?.riskLevel === 'Medium'
-                    ? 'bg-amber-100 text-amber-800 border-amber-200'
-                    : 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                }`}
+                className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold border tracking-wide shadow-2xs ${statusBanner.bg}`}
               >
-                {report.result?.overallHealthStatus || 'Healthy'}
+                {statusBanner.label}
               </span>
             </div>
           </div>
 
           {/* Animal Profile Overview */}
-          <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 rounded-xl bg-white border border-stone-200 text-xs sm:text-sm shadow-2xs">
+          <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 rounded-xl bg-white border border-stone-200 text-xs sm:text-sm">
             <div>
-              <span className="text-stone-400 block text-[11px] font-semibold">Animal Name</span>
+              <span className="text-stone-400 block text-[11px] font-semibold">Animal</span>
               <strong className="text-stone-800 font-bold">{report.animalName || 'Livestock'}</strong>
             </div>
             <div>
@@ -278,12 +299,16 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
               </strong>
             </div>
             <div>
-              <span className="text-stone-400 block text-[11px] font-semibold">Reported Temp</span>
-              <strong className="text-stone-800 font-bold">{report.temperature || 'Normal'}</strong>
+              <span className="text-stone-400 block text-[11px] font-semibold">Age</span>
+              <strong className="text-stone-800 font-bold">
+                {report.result?.strictAnalysis?.animal?.age || (report as any).age || 'Adult'}
+              </strong>
             </div>
             <div>
-              <span className="text-stone-400 block text-[11px] font-semibold">Behavior</span>
-              <strong className="text-stone-800 font-bold">{report.behavior || 'Active'}</strong>
+              <span className="text-stone-400 block text-[11px] font-semibold">Sex</span>
+              <strong className="text-stone-800 font-bold">
+                {report.result?.strictAnalysis?.animal?.sex || (report as any).sex || 'Female'}
+              </strong>
             </div>
           </div>
         </div>

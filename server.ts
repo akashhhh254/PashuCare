@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
 import { createServer as createViteServer } from 'vite';
 import { initialDiseases } from './src/data/diseases';
+import { generateRuleBasedAssessment } from './src/utils/veterinaryRuleEngine';
 
 dotenv.config();
 
@@ -237,334 +238,354 @@ app.get('/api/health', (req: Request, res: Response) => {
 
 // 2. AI Animal Health Vision & Clinical Analysis
 app.post('/api/analyze', async (req: Request, res: Response) => {
-  try {
-    const {
-      image,
-      animalType = 'Animal',
-      animalCategory = 'livestock',
-      animalName = '',
-      breed = '',
-      age = '',
-      sex = '',
-      symptoms = [],
-      temperature = 'Normal',
-      behavior = 'Active & Alert',
-      appetite = 'Normal',
-      waterIntake = 'Normal',
-      milkProduction = 'Not Applicable',
-      duration = '1-2 days',
-      additionalInformation = '',
-      language = 'en'
-    } = req.body;
+  const {
+    image,
+    animalType = 'Animal',
+    animalCategory = 'livestock',
+    animalName = '',
+    breed = '',
+    age = '',
+    sex = '',
+    symptoms = [],
+    temperature = 'Normal',
+    behavior = 'Active & Alert',
+    appetite = 'Normal',
+    waterIntake = 'Normal',
+    milkProduction = 'Not Applicable',
+    duration = '1-2 days',
+    additionalInformation = '',
+    language = 'en'
+  } = req.body;
 
-    const ai = getAIClient();
-    if (!ai) {
-      return res.status(400).json({
-        success: false,
-        error: 'AI_NOT_CONFIGURED',
-        message: 'The Gemini AI API key is not configured. Please add your GEMINI_API_KEY in the AI Studio Settings > Secrets panel before initiating AI health analysis.',
-      });
-    }
+  const clinicalInput = {
+    animalType,
+    animalCategory,
+    animalName,
+    breed,
+    age,
+    sex,
+    symptoms: Array.isArray(symptoms) ? symptoms : [],
+    temperature,
+    behavior,
+    appetite,
+    waterIntake,
+    milkProduction,
+    duration,
+    additionalInformation,
+    language
+  };
 
-    if (!image && (!symptoms || symptoms.length === 0) && !additionalInformation) {
-      return res.status(400).json({
-        success: false,
-        error: 'MISSING_INPUT',
-        message: 'Please add at least one symptom or upload an animal photo before starting the analysis.',
-      });
-    }
+  const ai = getAIClient();
+  const candidateModels = ['gemini-flash-latest', 'gemini-3.1-flash-lite', 'gemini-3.8-flash'];
 
-    // Dynamic species context builder
-    const speciesLower = String(animalType).toLowerCase();
-    let speciesSpecificGuidance = '';
+  // Helper to execute Gemini with a strict timeout
+  const runWithTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> => {
+    return Promise.race([
+      promise,
+      new Promise<T>((_, reject) => setTimeout(() => reject(new Error('AI_REQUEST_TIMEOUT')), ms))
+    ]);
+  };
 
-    if (speciesLower.includes('cow') || speciesLower.includes('bull') || speciesLower.includes('calf') || speciesLower.includes('cattle')) {
-      speciesSpecificGuidance = 'SPECIES DOMAIN: Bovine / Cattle. Evaluate against cattle pathology (FMD, Lumpy Skin Disease, Bovine Mastitis, Hemorrhagic Septicemia, Black Quarter, Theileriosis, Bloat, Milk Fever, Ketosis). Consider rumination, milk drop, mucosal ulcers, and herd biosecurity.';
-    } else if (speciesLower.includes('buffalo')) {
-      speciesSpecificGuidance = 'SPECIES DOMAIN: Water Buffalo (Bubaline). Highly susceptible to Hemorrhagic Septicemia (Gal Ghotu), heat stress, wallowing-associated parasites, Surra (Trypanosomiasis), and mastitis. Buffaloes have lower heat tolerance than cattle.';
-    } else if (speciesLower.includes('goat') || speciesLower.includes('sheep')) {
-      speciesSpecificGuidance = 'SPECIES DOMAIN: Small Ruminants (Caprine / Ovine). Evaluate for Peste des Petits Ruminants (PPR), Enterotoxemia (Pulpy Kidney), Contagious Ecthyma (Orf), Sheep/Goat Pox, Haemonchus contortus (severe anemia / bottle jaw), Foot Rot, and acute bloat.';
-    } else if (speciesLower.includes('chicken') || speciesLower.includes('poultry') || speciesLower.includes('hen') || speciesLower.includes('rooster') || speciesLower.includes('duck') || speciesLower.includes('turkey') || speciesLower.includes('quail')) {
-      speciesSpecificGuidance = 'SPECIES DOMAIN: Avian / Poultry. Evaluate for Newcastle Disease (Ranikhet), Infectious Bronchitis, Coccidiosis (bloody droppings), Fowl Pox, Fowl Cholera, Chronic Respiratory Disease (CRD), egg binding, crop stasis, and nutritional deficiencies. Do NOT apply mammal or dairy considerations.';
-    } else if (speciesLower.includes('dog') || speciesLower.includes('canine') || speciesLower.includes('puppy')) {
-      speciesSpecificGuidance = 'SPECIES DOMAIN: Canine / Dog. Evaluate for Canine Parvovirus, Distemper, Kennel Cough, Tick Fever (Ehrlichiosis), gastroenteritis, allergic dermatitis, otitis, and GDV/bloat. NEVER recommend human paracetamol/ibuprofen (highly toxic to dogs).';
-    } else if (speciesLower.includes('cat') || speciesLower.includes('feline') || speciesLower.includes('kitten')) {
-      speciesSpecificGuidance = 'SPECIES DOMAIN: Feline / Cat. Evaluate for Feline Panleukopenia, Upper Respiratory Infection (Cat Flu / Herpesvirus / Calicivirus), Feline Lower Urinary Tract Disease (FLUTD), hairballs, and ear mites. Note: Permethrin, paracetamol, and essential oils are extremely toxic to cats.';
-    } else if (speciesLower.includes('horse') || speciesLower.includes('donkey') || speciesLower.includes('mule') || speciesLower.includes('equine')) {
-      speciesSpecificGuidance = 'SPECIES DOMAIN: Equine. Evaluate for Colic (abdominal pain, rolling), Laminitis (founder), Strangles, Tetanus, respiratory heaves, and hoof thrush. Equine colic is an immediate medical emergency.';
-    } else if (speciesLower.includes('pig') || speciesLower.includes('swine')) {
-      speciesSpecificGuidance = 'SPECIES DOMAIN: Swine / Pig. Evaluate for Swine Erysipelas, African Swine Fever signs, Porcine Parvovirus, respiratory complex, and mange.';
-    } else if (speciesLower.includes('fish') || speciesLower.includes('koi') || speciesLower.includes('goldfish') || speciesLower.includes('aquatic')) {
-      speciesSpecificGuidance = 'SPECIES DOMAIN: Aquatic / Fish. Evaluate for Ich (white spot disease), Fin Rot, Swim Bladder Disorder, Dropsy, fungal infections, water ammonia/nitrite toxicity, and low dissolved oxygen.';
-    } else if (speciesLower.includes('snake') || speciesLower.includes('lizard') || speciesLower.includes('turtle') || speciesLower.includes('tortoise') || speciesLower.includes('reptile')) {
-      speciesSpecificGuidance = 'SPECIES DOMAIN: Reptilian. Evaluate for Metabolic Bone Disease (MBD / calcium-UVB deficiency), Respiratory Infection, Dysecdysis (retained shed), Mouth Rot (Infectious Stomatitis), and thermal burns.';
-    } else if (speciesLower.includes('frog') || speciesLower.includes('toad') || speciesLower.includes('amphibian')) {
-      speciesSpecificGuidance = 'SPECIES DOMAIN: Amphibian. Evaluate for Red Leg Syndrome, Chytridiomycosis, skin lesions, hydration state, and permeable skin sensitivities.';
-    } else if (animalCategory === 'wildlife' || speciesLower.includes('elephant') || speciesLower.includes('deer') || speciesLower.includes('lion') || speciesLower.includes('tiger') || speciesLower.includes('leopard') || speciesLower.includes('monkey') || speciesLower.includes('wild')) {
-      speciesSpecificGuidance = 'SPECIES DOMAIN: Wildlife / Protected Fauna. Provide preliminary clinical observations, emphasize safety precautions (do NOT touch or corner wild animals), and explicitly advise contacting the local Forest Department or certified Wildlife Veterinarians.';
-    } else {
-      speciesSpecificGuidance = `SPECIES DOMAIN: ${animalType}. Provide species-appropriate veterinary observations based on standard clinical guidelines for this animal.`;
-    }
+  // Dynamic species context builder for AI prompt
+  const speciesLower = String(animalType).toLowerCase();
+  let speciesSpecificGuidance = '';
+  if (speciesLower.includes('cow') || speciesLower.includes('bull') || speciesLower.includes('calf') || speciesLower.includes('cattle')) {
+    speciesSpecificGuidance = 'SPECIES: Bovine / Cattle. Evaluate for FMD, Lumpy Skin Disease, Bovine Mastitis, Hemorrhagic Septicemia, Black Quarter, Theileriosis, Bloat, Milk Fever, Ketosis.';
+  } else if (speciesLower.includes('buffalo')) {
+    speciesSpecificGuidance = 'SPECIES: Water Buffalo (Bubaline). Evaluate for Hemorrhagic Septicemia, Surra, Mastitis, heat stress, wallowing parasites.';
+  } else if (speciesLower.includes('goat') || speciesLower.includes('sheep')) {
+    speciesSpecificGuidance = 'SPECIES: Small Ruminant (Caprine/Ovine). Evaluate for PPR (Peste des Petits Ruminants), Enterotoxemia, Goat/Sheep Pox, Haemonchosis, Foot Rot, Orf.';
+  } else if (speciesLower.includes('chicken') || speciesLower.includes('poultry') || speciesLower.includes('hen')) {
+    speciesSpecificGuidance = 'SPECIES: Avian / Poultry. Evaluate for Newcastle Disease (Ranikhet), Coccidiosis, Fowl Pox, CRD.';
+  } else if (speciesLower.includes('dog') || speciesLower.includes('puppy')) {
+    speciesSpecificGuidance = 'SPECIES: Canine / Dog. Evaluate for Parvovirus, Distemper, Kennel Cough, Gastroenteritis, Tick Fever.';
+  } else {
+    speciesSpecificGuidance = `SPECIES: ${animalType}. Provide clinical veterinary evaluation based on reported signs.`;
+  }
 
-    const systemPrompt = `You are "PashuCare AI", a comprehensive, production-grade veterinary clinical intelligence assistant.
-You provide health guidance for all animal species: livestock, poultry, companion animals (dogs, cats), birds, wildlife, reptiles, amphibians, and aquatic animals.
-
+  const promptSystem = `You are "PashuCare AI", a professional veterinary clinical intelligence assistant.
 ${speciesSpecificGuidance}
 
-CORE MEDICAL & SAFETY RULES:
-1. SPECIES AWARENESS: NEVER assume every animal is a cow or cattle. Calibrate your analysis strictly to the selected species (${animalType}).
-2. MEDICAL ACCURACY: NEVER state with absolute certainty that "This animal definitely has X disease." Use clinical language: "Possible condition", "Potential cause", "Differential diagnosis".
-3. SEVERITY & EMERGENCIES:
-   - Severity must be one of: "low", "moderate", "high", "emergency".
-   - If signs indicate immediate life threats (e.g. severe bloat with respiratory distress, acute choking, profuse bleeding, inability to stand, severe trauma, suspected rabies, high acute fever with collapse), set "emergency": true, "veterinarian_required": true, and "severity": "emergency".
-4. PRACTICAL & SAFE RECOMMENDATIONS:
-   - "immediate_actions": Practical, safe first-aid and supportive steps the owner/farmer can take immediately (e.g. isolate, hydration/ORS, clean bedding, warm/cool environment, antiseptic wound dressing).
-   - "recommendations": General care, feeding, biosecurity, and management guidance.
-   - "warning_signs": 2-4 critical deterioration signs that demand immediate emergency intervention.
-   - Do NOT provide dangerous prescription drug dosages. Prescription medications and antibiotics must always be supervised by a licensed veterinarian.
-5. IMAGE OBSERVATIONS:
-   - If an image is provided, identify visible physical signs (posture, skin/feather/coat integrity, eyes, oral mucosa, lesions, discharge).
-   - If the image does not show an animal (e.g., random object, food, machinery), clearly state this in the summary while still addressing reported symptoms if available.
-6. LANGUAGE:
-   - Respond in "${language}" (en = English, hi = Hindi, mr = Marathi).
-   - Ensure medical conditions are recognizable (e.g. "Foot and Mouth Disease / खुरपका-मुंहपका", "Mastitis / थनैला रोग").
-7. STRICT OUTPUT FORMAT:
-   - You MUST output exclusively valid JSON conforming strictly to the provided schema.`;
+RULES:
+1. Provide a preliminary health assessment. Never present it as an absolute confirmed diagnosis.
+2. Structure output as valid JSON conforming strictly to:
+{
+  "assessment": "Brief clinical summary of health condition",
+  "possible_conditions": [
+    {
+      "name": "Condition Name",
+      "likelihood": "low" | "moderate" | "high",
+      "reason": "Why this matches signs",
+      "confidence": 75
+    }
+  ],
+  "observations": ["Observed sign 1", "Observed sign 2"],
+  "recommended_actions": ["Practical, safe first aid / supportive action 1", "Action 2"],
+  "warning_signs": ["Critical sign when farmer must contact vet immediately 1", "Sign 2"],
+  "urgency": "routine" | "soon" | "urgent" | "emergency",
+  "veterinary_recommendation": "Clear advice regarding veterinary consultation",
+  "confidence": 75
+}
+3. Language: "${language}" (en = English, hi = Hindi, mr = Marathi).
+4. Do NOT prescribe prescription antibiotics or unsafe chemical dosages. Focus on safe supportive care and warning signs.`;
 
-    const userPromptText = `ANIMAL CLINICAL PROFILE:
+  const promptUser = `CLINICAL SIGNS:
 - Species: ${animalType}
-- Name / Tag ID: ${animalName || 'Not specified'}
+- Name/Tag: ${animalName || 'Not specified'}
 - Breed: ${breed || 'Not specified'}
 - Age: ${age || 'Not specified'}
 - Sex: ${sex || 'Not specified'}
-- Observed Symptoms: ${symptoms && symptoms.length > 0 ? symptoms.join(', ') : 'None explicitly checked'}
+- Observed Symptoms: ${symptoms.length > 0 ? symptoms.join(', ') : 'None marked'}
 - Body Temperature: ${temperature}
-- Behavior / Demeanor: ${behavior}
+- Demeanor/Behavior: ${behavior}
 - Appetite: ${appetite}
 - Water Intake: ${waterIntake}
-- Milk Production (if applicable): ${milkProduction}
-- Duration of Symptoms: ${duration}
-- User's Detailed Notes: ${additionalInformation || 'None provided'}
-- Preferred Output Language: ${language}
+- Milk Production: ${milkProduction}
+- Duration: ${duration}
+- Notes: ${additionalInformation || 'None'}
+- Preferred Language: ${language}`;
 
-Analyze the clinical signs and image (if provided). Generate a comprehensive assessment strictly adhering to the JSON schema.`;
+  let parsedAIResponse: any = null;
 
-    const contents: any = [];
-
-    // Parse image if provided
-    if (image && typeof image === 'string' && image.startsWith('data:image/')) {
+  // PRIORITY 1: Multimodal analysis if photo exists
+  if (ai && image && typeof image === 'string' && image.startsWith('data:image/')) {
+    try {
       const matches = image.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
       if (matches && matches.length === 3) {
         const mimeType = matches[1];
         const base64Data = matches[2];
-        contents.push({
-          inlineData: {
-            mimeType: mimeType,
-            data: base64Data,
+
+        const multimodalContents = [
+          {
+            inlineData: {
+              mimeType,
+              data: base64Data,
+            },
           },
-        });
-      }
-    }
-
-    contents.push({
-      text: `${systemPrompt}\n\n${userPromptText}`,
-    });
-
-    // Call Gemini with resilient model fallback for production reliability
-    const candidateModels = ['gemini-flash-latest', 'gemini-3.1-flash-lite', 'gemini-3.8-flash'];
-    let responseText = '';
-    let lastError: any = null;
-
-    for (const modelName of candidateModels) {
-      try {
-        const response = await ai.models.generateContent({
-          model: modelName,
-          contents: contents,
-          config: {
-            responseMimeType: 'application/json',
+          {
+            text: `${promptSystem}\n\nAnalyze the animal in the image alongside reported signs:\n${promptUser}`,
           },
-        });
-        if (response.text) {
-          responseText = response.text;
-          break;
-        }
-      } catch (mErr: any) {
-        lastError = mErr;
-        console.warn(`Model ${modelName} returned error, trying fallback candidate:`, mErr?.message || mErr);
-      }
-    }
+        ];
 
-    if (!responseText) {
-      throw lastError || new Error('All AI model candidates unavailable');
-    }
-
-    let rawJson: any;
-
-    try {
-      rawJson = JSON.parse(responseText.trim());
-    } catch (e1) {
-      // Clean possible markdown code fences
-      const cleaned = responseText.replace(/```json\s*/gi, '').replace(/```\s*$/gi, '').replace(/```/g, '').trim();
-      try {
-        rawJson = JSON.parse(cleaned);
-      } catch (e2) {
-        // Fallback: extract substring between first { and last }
-        const match = cleaned.match(/\{[\s\S]*\}/);
-        if (match) {
-          rawJson = JSON.parse(match[0]);
-        } else {
-          throw new Error('MALFORMED_AI_RESPONSE');
-        }
-      }
-    }
-
-    // Validate and structure response
-    const animalOut = rawJson.animal || {};
-    const speciesOut = animalOut.species || animalType;
-    const analysisOut = rawJson.analysis || {};
-
-    let severityVal = String(analysisOut.severity || rawJson.severity || 'low').toLowerCase();
-    if (!['low', 'moderate', 'high', 'emergency'].includes(severityVal)) {
-      severityVal = severityVal.includes('emerg') || severityVal.includes('crit') ? 'emergency' : severityVal.includes('high') ? 'high' : severityVal.includes('mod') ? 'moderate' : 'low';
-    }
-
-    let confidenceVal = Number(analysisOut.confidence ?? rawJson.confidence ?? 75);
-    if (isNaN(confidenceVal) || confidenceVal < 0) confidenceVal = 70;
-    if (confidenceVal > 100) confidenceVal = 100;
-
-    const possibleConditionsOut = Array.isArray(analysisOut.possible_conditions)
-      ? analysisOut.possible_conditions.map((c: any) => {
-          if (typeof c === 'string') {
-            return { name: c, confidence: confidenceVal, reason: 'Identified based on clinical signs and reported symptoms.' };
+        for (const modelName of candidateModels) {
+          try {
+            const resp = await runWithTimeout(
+              ai.models.generateContent({
+                model: modelName,
+                contents: multimodalContents,
+                config: { responseMimeType: 'application/json' },
+              }),
+              14000
+            );
+            if (resp.text) {
+              const cleaned = resp.text.replace(/```json\s*/gi, '').replace(/```\s*$/gi, '').replace(/```/g, '').trim();
+              parsedAIResponse = JSON.parse(cleaned);
+              break;
+            }
+          } catch (modelErr: any) {
+            console.warn(`[PashuCare] Multimodal attempt on ${modelName} failed:`, modelErr?.message || modelErr);
           }
-          return {
-            name: String(c.name || 'Condition'),
-            confidence: Number(c.confidence ?? confidenceVal),
-            reason: String(c.reason || 'Clinical observation')
-          };
-        })
-      : Array.isArray(rawJson.possibleConditions)
-      ? rawJson.possibleConditions.map((c: any) => ({
-          name: String(c.name || 'Condition'),
-          confidence: Number(c.confidence ?? confidenceVal),
-          reason: String(c.reason || 'Clinical observation')
-        }))
-      : [{ name: 'General Health Observation', confidence: confidenceVal, reason: 'Evaluated based on reported symptoms.' }];
+        }
+      }
+    } catch (imgErr) {
+      console.warn('[PashuCare] Multimodal pipeline error, continuing to symptom analysis:', imgErr);
+    }
+  }
 
-    const observedSymptomsOut = Array.isArray(analysisOut.observed_symptoms)
-      ? analysisOut.observed_symptoms.map(String)
-      : Array.isArray(rawJson.visibleSymptoms)
-      ? rawJson.visibleSymptoms.map(String)
-      : symptoms;
+  // PRIORITY 2: Symptom + animal-species text analysis if multimodal did not succeed
+  if (ai && !parsedAIResponse) {
+    try {
+      const textContents = [
+        {
+          text: `${promptSystem}\n\n${promptUser}`,
+        },
+      ];
 
-    const recommendationsOut = Array.isArray(rawJson.recommendations)
-      ? rawJson.recommendations.map(String)
-      : Array.isArray(rawJson.generalRecommendations)
-      ? rawJson.generalRecommendations.map(String)
-      : ['Provide clean drinking water, adequate ventilation, and monitor closely.'];
+      for (const modelName of candidateModels) {
+        try {
+          const resp = await runWithTimeout(
+            ai.models.generateContent({
+              model: modelName,
+              contents: textContents,
+              config: { responseMimeType: 'application/json' },
+            }),
+            12000
+          );
+          if (resp.text) {
+            const cleaned = resp.text.replace(/```json\s*/gi, '').replace(/```\s*$/gi, '').replace(/```/g, '').trim();
+            parsedAIResponse = JSON.parse(cleaned);
+            break;
+          }
+        } catch (mErr: any) {
+          console.warn(`[PashuCare] Text analysis on ${modelName} failed:`, mErr?.message || mErr);
+        }
+      }
+    } catch (txtErr) {
+      console.warn('[PashuCare] AI text analysis pipeline error:', txtErr);
+    }
+  }
 
-    const immediateActionsOut = Array.isArray(rawJson.immediate_actions)
-      ? rawJson.immediate_actions.map(String)
-      : Array.isArray(rawJson.immediateActions)
-      ? rawJson.immediateActions.map(String)
-      : ['Isolate animal in a clean, quiet area to reduce physical stress.'];
+  // PRIORITY 3: Rule-based preliminary assessment if AI/API is temporarily unavailable or returned invalid JSON
+  if (!parsedAIResponse) {
+    console.log('[PashuCare] Engaging rule-based veterinary assessment fallback pipeline.');
+    const ruleBasedResult = generateRuleBasedAssessment(clinicalInput);
+    return res.status(200).json({
+      success: true,
+      animalDetected: true,
+      result: ruleBasedResult,
+      pipeline: 'rule-based-fallback'
+    });
+  }
 
-    const warningSignsOut = Array.isArray(rawJson.warning_signs)
-      ? rawJson.warning_signs.map(String)
-      : Array.isArray(rawJson.warningSigns)
-      ? rawJson.warningSigns.map(String)
-      : ['Sudden collapse', 'Severe respiratory distress', 'Extreme lethargy or non-responsiveness'];
-
-    const vetRequiredOut = Boolean(
-      rawJson.veterinarian_required ??
-      rawJson.veterinarianRecommended ??
-      severityVal === 'high' ??
-      severityVal === 'emergency'
-    );
-
-    const emergencyOut = Boolean(
-      rawJson.emergency ??
-      severityVal === 'emergency'
-    );
-
-    const summaryOut = String(
-      analysisOut.summary ||
-      rawJson.summary ||
-      rawJson.rawAIExplanation ||
-      `Health analysis complete for ${speciesOut}.`
+  // Normalize AI response to ensure strict compliance and full UI compatibility
+  try {
+    const assessmentSummary = String(
+      parsedAIResponse.assessment ||
+      parsedAIResponse.summary ||
+      parsedAIResponse.rawAIExplanation ||
+      `Preliminary assessment completed for ${animalType}.`
     ).trim();
 
-    // Map backwards-compatible fields
-    const riskLevelVal = severityVal === 'emergency' ? 'Emergency' : severityVal === 'high' ? 'High' : severityVal === 'moderate' ? 'Medium' : 'Low';
-    const healthStatusVal = severityVal === 'emergency' ? 'Emergency' : severityVal === 'high' ? 'High Risk' : severityVal === 'moderate' ? 'Needs Attention' : 'Healthy';
+    let urgencyVal = String(parsedAIResponse.urgency || parsedAIResponse.severity || 'routine').toLowerCase();
+    if (!['routine', 'soon', 'urgent', 'emergency'].includes(urgencyVal)) {
+      if (urgencyVal.includes('emerg') || urgencyVal.includes('crit')) urgencyVal = 'emergency';
+      else if (urgencyVal.includes('high') || urgencyVal.includes('urg')) urgencyVal = 'urgent';
+      else if (urgencyVal.includes('mod') || urgencyVal.includes('med')) urgencyVal = 'soon';
+      else urgencyVal = 'routine';
+    }
 
-    let healthScoreVal = 85;
-    if (severityVal === 'emergency') healthScoreVal = Math.max(15, 100 - confidenceVal);
-    else if (severityVal === 'high') healthScoreVal = Math.max(35, 100 - Math.round(confidenceVal * 0.7));
-    else if (severityVal === 'moderate') healthScoreVal = Math.max(55, 100 - Math.round(confidenceVal * 0.45));
-    else healthScoreVal = Math.min(96, Math.max(78, 100 - Math.round(confidenceVal * 0.2)));
+    let statusVal: 'LOW CONCERN' | 'MONITOR' | 'VETERINARY ATTENTION' | 'URGENT' = 'LOW CONCERN';
+    if (urgencyVal === 'emergency') statusVal = 'URGENT';
+    else if (urgencyVal === 'urgent') statusVal = 'VETERINARY ATTENTION';
+    else if (urgencyVal === 'soon') statusVal = 'MONITOR';
+    else statusVal = 'LOW CONCERN';
 
-    const resultPayload = {
-      // Strict JSON Schema representation
+    let confVal = Number(parsedAIResponse.confidence ?? 75);
+    if (isNaN(confVal) || confVal < 20) confVal = 70;
+    if (confVal > 100) confVal = 100;
+
+    const rawConditions = Array.isArray(parsedAIResponse.possible_conditions)
+      ? parsedAIResponse.possible_conditions
+      : Array.isArray(parsedAIResponse.possibleConditions)
+      ? parsedAIResponse.possibleConditions
+      : [{ name: 'Clinical Observation', likelihood: 'low', reason: 'Based on reported symptoms', confidence: confVal }];
+
+    const normalizedConditions = rawConditions.map((c: any) => {
+      if (typeof c === 'string') {
+        return { name: c, likelihood: 'moderate' as const, reason: 'Matches reported clinical indicators', confidence: confVal };
+      }
+      return {
+        name: String(c.name || 'Condition'),
+        likelihood: (['low', 'moderate', 'high'].includes(c.likelihood) ? c.likelihood : 'moderate') as 'low' | 'moderate' | 'high',
+        reason: String(c.reason || 'Clinical observation'),
+        confidence: Number(c.confidence ?? confVal)
+      };
+    });
+
+    const observationsOut = Array.isArray(parsedAIResponse.observations)
+      ? parsedAIResponse.observations.map(String)
+      : Array.isArray(parsedAIResponse.observed_symptoms)
+      ? parsedAIResponse.observed_symptoms.map(String)
+      : Array.isArray(symptoms) && symptoms.length > 0
+      ? symptoms
+      : ['General clinical inspection'];
+
+    const actionsOut = Array.isArray(parsedAIResponse.recommended_actions)
+      ? parsedAIResponse.recommended_actions.map(String)
+      : Array.isArray(parsedAIResponse.immediate_actions)
+      ? parsedAIResponse.immediate_actions.map(String)
+      : ['Provide clean drinking water and keep the animal sheltered.'];
+
+    const warningOut = Array.isArray(parsedAIResponse.warning_signs)
+      ? parsedAIResponse.warning_signs.map(String)
+      : ['Sudden collapse', 'Extreme respiratory distress', 'Severe dehydration'];
+
+    const vetRecOut = String(
+      parsedAIResponse.veterinary_recommendation ||
+      (urgencyVal === 'emergency' || urgencyVal === 'urgent'
+        ? 'Contact an emergency veterinarian immediately. National Helpline: 1962.'
+        : 'Monitor animal over the next 24-48 hours. Consult a veterinarian if symptoms persist.')
+    );
+
+    const isEmergency = urgencyVal === 'emergency';
+    const isVetRequired = isEmergency || urgencyVal === 'urgent';
+    const riskLevel = urgencyVal === 'emergency' ? 'Emergency' : urgencyVal === 'urgent' ? 'High' : urgencyVal === 'soon' ? 'Medium' : 'Low';
+    const healthStatus = urgencyVal === 'emergency' ? 'Emergency' : urgencyVal === 'urgent' ? 'High Risk' : urgencyVal === 'soon' ? 'Needs Attention' : 'Healthy';
+    const healthScore = urgencyVal === 'emergency' ? 20 : urgencyVal === 'urgent' ? 45 : urgencyVal === 'soon' ? 68 : 88;
+
+    const normalizedResult = {
+      assessment: assessmentSummary,
+      possible_conditions: normalizedConditions,
+      observations: observationsOut,
+      recommended_actions: actionsOut,
+      warning_signs: warningOut,
+      urgency: urgencyVal,
+      status: statusVal,
+      veterinary_recommendation: vetRecOut,
+      confidence: confVal,
+
+      // Strict sub-structure
       animal: {
-        species: speciesOut,
-        breed: breed || animalOut.breed || '',
-        name: animalName || animalOut.name || '',
-        age: age || animalOut.age || '',
-        sex: sex || animalOut.sex || ''
+        species: animalType,
+        breed: breed || '',
+        name: animalName || '',
+        age: age || '',
+        sex: sex || ''
       },
       analysis: {
-        possible_conditions: possibleConditionsOut,
-        observed_symptoms: observedSymptomsOut,
-        severity: severityVal,
-        confidence: confidenceVal,
-        summary: summaryOut
+        possible_conditions: normalizedConditions,
+        observed_symptoms: observationsOut,
+        severity: urgencyVal === 'emergency' ? 'emergency' : urgencyVal === 'urgent' ? 'high' : urgencyVal === 'soon' ? 'moderate' : 'low',
+        confidence: confVal,
+        summary: assessmentSummary
       },
-      recommendations: recommendationsOut,
-      immediate_actions: immediateActionsOut,
-      warning_signs: warningSignsOut,
-      veterinarian_required: vetRequiredOut,
-      emergency: emergencyOut,
+      recommendations: actionsOut,
+      immediate_actions: actionsOut,
+      veterinarian_required: isVetRequired,
+      emergency: isEmergency,
 
       // Backward-compatible fields
       animalDetected: true,
-      detectedAnimalType: speciesOut,
-      overallHealthStatus: healthStatusVal,
-      riskLevel: riskLevelVal,
-      possibleConditions: possibleConditionsOut,
-      visibleSymptoms: observedSymptomsOut,
+      detectedAnimalType: animalType,
+      overallHealthStatus: healthStatus,
+      riskLevel: riskLevel,
+      possibleConditions: normalizedConditions,
+      visibleSymptoms: observationsOut,
       reportedSymptoms: symptoms,
-      possibleCauses: possibleConditionsOut.map((c: any) => c.name),
-      generalRecommendations: recommendationsOut,
-      preventionTips: warningSignsOut,
+      possibleCauses: normalizedConditions.map((c: any) => c.name),
+      generalRecommendations: actionsOut,
+      preventionTips: warningOut,
       medicinesAndTreatment: {
-        firstAidMedications: immediateActionsOut,
-        veterinaryDrugs: vetRequiredOut
-          ? ['Consult a licensed veterinarian for formal prescription and accurate dosage calculation.']
+        firstAidMedications: actionsOut,
+        veterinaryDrugs: isVetRequired
+          ? ['Consult a qualified veterinarian for prescription medication and exact dosage.']
           : ['Supportive care and periodic monitoring.'],
-        supportiveCare: recommendationsOut,
-        safetyPrecautions: 'Prescription antibiotics and injectable medications must always be administered under professional veterinary guidance.'
+        supportiveCare: actionsOut,
+        safetyPrecautions: 'Prescription antibiotics and injectables must always be administered under licensed veterinary guidance.'
       },
-      veterinarianRecommended: vetRequiredOut,
-      healthScore: healthScoreVal,
-      disclaimer: 'This AI health assessment provides preliminary guidance based on visual observations and reported signs. It does not replace clinical veterinary diagnosis or treatment.',
-      rawAIExplanation: summaryOut,
-      summary: summaryOut,
-      immediateActions: immediateActionsOut,
-      warningSigns: warningSignsOut
+      veterinarianRecommended: isVetRequired,
+      healthScore,
+      disclaimer: 'This health assessment is preliminary and educational. It does not replace in-person diagnosis by a licensed veterinarian.',
+      rawAIExplanation: assessmentSummary,
+      summary: assessmentSummary,
+      immediateActions: actionsOut,
+      warningSigns: warningOut
     };
 
     return res.status(200).json({
       success: true,
       animalDetected: true,
-      result: resultPayload,
+      result: normalizedResult,
+      pipeline: 'ai'
     });
-  } catch (error: any) {
-    console.error('AI Animal Health Analysis error:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'ANALYSIS_FAILED',
-      message: 'Unable to complete the health analysis right now. Please try again.',
+  } catch (normErr) {
+    console.error('[PashuCare] Error normalizing AI output, returning rule-based fallback:', normErr);
+    const fallbackResult = generateRuleBasedAssessment(clinicalInput);
+    return res.status(200).json({
+      success: true,
+      animalDetected: true,
+      result: fallbackResult,
+      pipeline: 'rule-based-fallback'
     });
   }
 });

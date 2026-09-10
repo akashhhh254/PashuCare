@@ -677,161 +677,159 @@ export default function App() {
       />
 
       {/* Main Content Area with Mobile Bottom Nav Clearance */}
-      <main className={`flex-1 ${user ? 'pb-24 lg:pb-10' : 'pb-10'}`}>
-        {!user ? (
+      <main className="flex-1 pb-24 lg:pb-10">
+        {activeTab === 'home' && (
+          <HomeView
+            language={language}
+            onStartCheck={() => {
+              setPreselectedAnimalForCheck(null);
+              setActiveTab('check');
+            }}
+            onNavigate={(tab) => setActiveTab(tab)}
+          />
+        )}
+
+        {activeTab === 'dashboard' && (
+          <DashboardView
+            animals={animals}
+            reports={reports}
+            reminders={reminders}
+            user={user}
+            language={language}
+            onNavigate={(tab) => setActiveTab(tab)}
+            onSelectReport={(report) => {
+              setSelectedReport(report);
+              setActiveTab('report');
+            }}
+            onSelectAnimal={(animal) => {
+              setSelectedAnimal(animal);
+            }}
+          />
+        )}
+
+        {activeTab === 'check' && (
+          <HealthCheckForm
+            animals={animals}
+            language={language}
+            preselectedAnimal={preselectedAnimalForCheck}
+            onAnalysisComplete={async (report) => {
+              const savedReport = {
+                ...report,
+                userId: user?.id || report.userId || 'anonymous'
+              };
+              setSelectedReport(savedReport);
+              setReports((prev) => [savedReport, ...prev]);
+              setActiveTab('report');
+              if (user?.id) {
+                try {
+                  await addReportToFirestore(savedReport);
+                } catch (err) {
+                  console.warn('Firestore report save:', err);
+                }
+              }
+            }}
+          />
+        )}
+
+        {activeTab === 'report' && (
+          <HealthReportView
+            report={selectedReport}
+            language={language}
+            onBack={() => setActiveTab('history')}
+            onRequestVet={() => {
+              setActiveTab('vet');
+            }}
+          />
+        )}
+
+        {activeTab === 'animals' && (
+          <AnimalsView
+            animals={animals}
+            language={language}
+            onAddAnimal={handleAddAnimal}
+            onSelectAnimal={(animal) => setSelectedAnimal(animal)}
+            onRunHealthCheck={(animal) => {
+              setPreselectedAnimalForCheck(animal);
+              setActiveTab('check');
+            }}
+          />
+        )}
+
+        {activeTab === 'history' && (
+          <HistoryView
+            reports={reports}
+            language={language}
+            onSelectReport={(report) => {
+              setSelectedReport(report);
+              setActiveTab('report');
+            }}
+            onDeleteReport={handleDeleteReport}
+            onStartNewCheck={() => {
+              setPreselectedAnimalForCheck(null);
+              setActiveTab('check');
+            }}
+          />
+        )}
+
+        {activeTab === 'reminders' && (
+          <RemindersView
+            reminders={reminders}
+            animals={animals}
+            language={language}
+            onAddReminder={handleAddReminder}
+            onToggleComplete={handleToggleReminderComplete}
+            onDeleteReminder={handleDeleteReminder}
+          />
+        )}
+
+        {activeTab === 'vet' && (
+          <VeterinarianView
+            animals={animals}
+            reports={reports}
+            user={user}
+            language={language}
+            preselectedReport={selectedReport}
+            onSubmitVetRequest={handleSubmitVetRequest}
+            pendingRequests={vetRequests}
+          />
+        )}
+
+        {activeTab === 'diseases' && (
+          <DiseaseLibraryView
+            language={language}
+            onNavigateToCheck={() => {
+              setPreselectedAnimalForCheck(null);
+              setActiveTab('check');
+            }}
+          />
+        )}
+
+        {activeTab === 'profile' && (
+          <ProfileView
+            user={user}
+            animals={animals}
+            reports={reports}
+            reminders={reminders}
+            language={language}
+            onLanguageChange={handleLanguageChange}
+            onOpenAuth={handleOpenAuth}
+            onSignOut={handleSignOut}
+            onOpenPrivacy={() => setShowPrivacyModal(true)}
+            onNavigate={(tab) => setActiveTab(tab)}
+            onClearCache={handleClearLocalCache}
+          />
+        )}
+
+        {activeTab === 'admin' && (
+          <AdminView language={language} />
+        )}
+
+        {activeTab === 'landing' && (
           <LandingView
             language={language}
             onOpenAuth={handleOpenAuth}
             onOpenPrivacy={() => setShowPrivacyModal(true)}
           />
-        ) : (
-          <>
-            {activeTab === 'home' && (
-              <HomeView
-                language={language}
-                onStartCheck={() => {
-                  setPreselectedAnimalForCheck(null);
-                  setActiveTab('check');
-                }}
-                onNavigate={(tab) => setActiveTab(tab)}
-              />
-            )}
-
-            {activeTab === 'dashboard' && (
-              <DashboardView
-                animals={animals}
-                reports={reports}
-                reminders={reminders}
-                user={user}
-                language={language}
-                onNavigate={(tab) => setActiveTab(tab)}
-                onSelectReport={(report) => {
-                  setSelectedReport(report);
-                  setActiveTab('report');
-                }}
-                onSelectAnimal={(animal) => {
-                  setSelectedAnimal(animal);
-                }}
-              />
-            )}
-
-            {activeTab === 'check' && (
-              <HealthCheckForm
-                animals={animals}
-                language={language}
-                preselectedAnimal={preselectedAnimalForCheck}
-                onAnalysisComplete={async (report) => {
-                  const savedReport = {
-                    ...report,
-                    userId: user?.id || report.userId || 'anonymous'
-                  };
-                  setSelectedReport(savedReport);
-                  setReports((prev) => [savedReport, ...prev]);
-                  setActiveTab('report');
-                  if (user?.id) {
-                    try {
-                      await addReportToFirestore(savedReport);
-                    } catch (err) {
-                      console.warn('Firestore report save:', err);
-                    }
-                  }
-                }}
-              />
-            )}
-
-            {activeTab === 'report' && (
-              <HealthReportView
-                report={selectedReport}
-                language={language}
-                onBack={() => setActiveTab('history')}
-                onRequestVet={() => {
-                  setActiveTab('vet');
-                }}
-              />
-            )}
-
-            {activeTab === 'animals' && (
-              <AnimalsView
-                animals={animals}
-                language={language}
-                onAddAnimal={handleAddAnimal}
-                onSelectAnimal={(animal) => setSelectedAnimal(animal)}
-                onRunHealthCheck={(animal) => {
-                  setPreselectedAnimalForCheck(animal);
-                  setActiveTab('check');
-                }}
-              />
-            )}
-
-            {activeTab === 'history' && (
-              <HistoryView
-                reports={reports}
-                language={language}
-                onSelectReport={(report) => {
-                  setSelectedReport(report);
-                  setActiveTab('report');
-                }}
-                onDeleteReport={handleDeleteReport}
-                onStartNewCheck={() => {
-                  setPreselectedAnimalForCheck(null);
-                  setActiveTab('check');
-                }}
-              />
-            )}
-
-            {activeTab === 'reminders' && (
-              <RemindersView
-                reminders={reminders}
-                animals={animals}
-                language={language}
-                onAddReminder={handleAddReminder}
-                onToggleComplete={handleToggleReminderComplete}
-                onDeleteReminder={handleDeleteReminder}
-              />
-            )}
-
-            {activeTab === 'vet' && (
-              <VeterinarianView
-                animals={animals}
-                reports={reports}
-                user={user}
-                language={language}
-                preselectedReport={selectedReport}
-                onSubmitVetRequest={handleSubmitVetRequest}
-                pendingRequests={vetRequests}
-              />
-            )}
-
-            {activeTab === 'diseases' && (
-              <DiseaseLibraryView
-                language={language}
-                onNavigateToCheck={() => {
-                  setPreselectedAnimalForCheck(null);
-                  setActiveTab('check');
-                }}
-              />
-            )}
-
-            {activeTab === 'profile' && (
-              <ProfileView
-                user={user}
-                animals={animals}
-                reports={reports}
-                reminders={reminders}
-                language={language}
-                onLanguageChange={handleLanguageChange}
-                onOpenAuth={handleOpenAuth}
-                onSignOut={handleSignOut}
-                onOpenPrivacy={() => setShowPrivacyModal(true)}
-                onNavigate={(tab) => setActiveTab(tab)}
-                onClearCache={handleClearLocalCache}
-              />
-            )}
-
-            {activeTab === 'admin' && (
-              <AdminView language={language} />
-            )}
-          </>
         )}
       </main>
 
@@ -844,16 +842,14 @@ export default function App() {
         onOpenPrivacy={() => setShowPrivacyModal(true)}
       />
 
-      {/* Mobile Bottom Navigation (Only for logged-in farmers) */}
-      {user && (
-        <BottomNav
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          currentTab={activeTab}
-          setCurrentTab={setActiveTab}
-          language={language}
-        />
-      )}
+      {/* Mobile Bottom Navigation */}
+      <BottomNav
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        currentTab={activeTab}
+        setCurrentTab={setActiveTab}
+        language={language}
+      />
 
       {/* Animal Detail & Timeline Modal */}
       {selectedAnimal && (

@@ -1,16 +1,13 @@
 import React from 'react';
 import {
   HeartPulse,
-  Camera,
-  Mic,
-  ShieldCheck,
+  Users,
+  Clock,
   PhoneCall,
-  Activity,
   ArrowRight,
-  Sparkles,
-  CheckCircle2,
-  AlertTriangle,
-  Users
+  ShieldAlert,
+  HelpCircle,
+  FileText
 } from 'lucide-react';
 import { Language } from '../types';
 import { translations, getTranslation } from '../i18n/translations';
@@ -28,269 +25,168 @@ export const HomeView: React.FC<HomeViewProps> = ({
 }) => {
   const t = (key: keyof typeof translations['en']) => getTranslation(language, key);
 
-  const steps = [
-    { num: '1', title: t('step1Title'), desc: t('step1Desc'), icon: Users },
-    { num: '2', title: t('step2Title'), desc: t('step2Desc'), icon: Camera },
-    { num: '3', title: t('step3Title'), desc: t('step3Desc'), icon: Mic },
-    { num: '4', title: t('step4Title'), desc: t('step4Desc'), icon: Sparkles },
-    { num: '5', title: t('step5Title'), desc: t('step5Desc'), icon: Activity },
-    { num: '6', title: t('step6Title'), desc: t('step6Desc'), icon: PhoneCall },
+  const supportedLivestock = [
+    {
+      id: 'Cow',
+      name: language === 'hi' ? 'गाय (Cow)' : language === 'mr' ? 'गाय (Cow)' : 'Cattle / Cow',
+      desc: language === 'hi' ? 'खुरपका-मुंहपका, लंपी, थनैला, अफरा' : language === 'mr' ? 'लाळ्या खुरकूत, लम्पी, स्तनदाह' : 'FMD, Lumpy Skin Disease, Mastitis, Bloat',
+      icon: '🐄'
+    },
+    {
+      id: 'Buffalo',
+      name: language === 'hi' ? 'भैंस (Buffalo)' : language === 'mr' ? 'म्हैस (Buffalo)' : 'Buffalo',
+      desc: language === 'hi' ? 'गलघोटू, थनैला, ताप' : language === 'mr' ? 'घटसर्प, स्तनदाह, ताप' : 'Hemorrhagic Septicemia, Mastitis, Pyrexia',
+      icon: '🐃'
+    },
+    {
+      id: 'Goat',
+      name: language === 'hi' ? 'बकरी (Goat)' : language === 'mr' ? 'शेळी (Goat)' : 'Goat',
+      desc: language === 'hi' ? 'पीपीआर, चेचक, दस्त' : language === 'mr' ? 'पीपीआर, देवी, जुलाब' : 'PPR, Goat Pox, Enterotoxemia, Diarrhea',
+      icon: '🐐'
+    },
+    {
+      id: 'Sheep',
+      name: language === 'hi' ? 'भेड़ (Sheep)' : language === 'mr' ? 'मेंढी (Sheep)' : 'Sheep',
+      desc: language === 'hi' ? 'पीपीआर, भेड़ चेचक, खुर सड़न' : language === 'mr' ? 'मेंढी देवी, खुर कुजणे' : 'Sheep Pox, PPR, Foot Rot, Parasitic Anemia',
+      icon: '🐑'
+    },
+    {
+      id: 'Chicken',
+      name: language === 'hi' ? 'मुर्गी (Poultry)' : language === 'mr' ? 'कोंबडी (Poultry)' : 'Poultry / Birds',
+      desc: language === 'hi' ? 'रानीखेत, खूनी दस्त' : language === 'mr' ? 'रानीखेत, रक्ताचे जुलाब' : 'Ranikhet / Newcastle, Coccidiosis, Fowl Pox',
+      icon: '🐔'
+    },
+    {
+      id: 'Other',
+      name: language === 'hi' ? 'कुत्ता व अन्य पशु' : language === 'mr' ? 'कुत्रा व इतर' : 'Dogs & Others',
+      desc: language === 'hi' ? 'पार्वो, आंत संक्रमण, सामान्य जांच' : language === 'mr' ? 'पार्व्हो, सामान्य तपासणी' : 'Canine Parvo, Respiratory, General Signs',
+      icon: '🐕'
+    }
   ];
 
   return (
-    <div className="space-y-12 pb-16">
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-10 space-y-8">
       
-      {/* HERO SECTION */}
-      <section className="relative overflow-hidden bg-gradient-to-b from-emerald-950 via-emerald-900 to-stone-900 text-white pt-12 pb-20 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-7xl mx-auto">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
-            
-            {/* Left Hero Content */}
-            <div className="lg:col-span-7 space-y-6">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-800/80 border border-emerald-600/40 text-emerald-200 text-xs font-bold uppercase tracking-wider backdrop-blur-xs">
-                <Sparkles className="w-3.5 h-3.5 text-emerald-300" />
-                <span>Next-Gen Livestock Vision AI</span>
-              </div>
-
-              <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black tracking-tight leading-tight">
-                Smart Animal Disease Detection for Every Farmer
-              </h1>
-
-              <p className="text-base sm:text-lg text-emerald-100 max-w-xl leading-relaxed">
-                {t('heroSubheading')}
-              </p>
-
-              {/* Action Buttons */}
-              <div className="flex flex-wrap items-center gap-4 pt-2">
-                <button
-                  onClick={onStartCheck}
-                  id="hero-check-health-btn"
-                  className="flex items-center gap-2.5 px-6 py-3.5 rounded-2xl bg-white text-emerald-950 hover:bg-emerald-50 font-black text-sm sm:text-base shadow-xl transition active:scale-95"
-                >
-                  <HeartPulse className="w-5 h-5 text-emerald-700" />
-                  <span>{t('heroPrimaryBtn')}</span>
-                  <ArrowRight className="w-4 h-4 text-emerald-700" />
-                </button>
-
-                <a
-                  href="#how-it-works"
-                  className="px-5 py-3.5 rounded-2xl bg-emerald-800/50 hover:bg-emerald-800 text-white font-bold text-sm border border-emerald-600/40 backdrop-blur-xs transition"
-                >
-                  {t('heroSecondaryBtn')}
-                </a>
-              </div>
-
-              {/* Verified Trust Stats */}
-              <div className="grid grid-cols-3 gap-4 pt-6 border-t border-emerald-800/50 text-xs sm:text-sm">
-                <div>
-                  <div className="font-extrabold text-emerald-300 text-base sm:text-lg">4 Species</div>
-                  <div className="text-stone-300 text-[11px] sm:text-xs">Cow, Buffalo, Goat, Sheep</div>
-                </div>
-                <div>
-                  <div className="font-extrabold text-emerald-300 text-base sm:text-lg">Multimodal</div>
-                  <div className="text-stone-300 text-[11px] sm:text-xs">Image + Symptoms + Voice</div>
-                </div>
-                <div>
-                  <div className="font-extrabold text-emerald-300 text-base sm:text-lg">Helpline 1962</div>
-                  <div className="text-stone-300 text-[11px] sm:text-xs">National Emergency Call</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Right Hero Card / Visual Preview */}
-            <div className="lg:col-span-5">
-              <div className="rounded-3xl bg-white/10 backdrop-blur-md border border-white/20 p-6 shadow-2xl relative overflow-hidden">
-                <div className="flex items-center justify-between pb-4 border-b border-white/10">
-                  <div className="flex items-center gap-2">
-                    <span className="w-3 h-3 rounded-full bg-emerald-400 animate-ping" />
-                    <span className="text-xs font-bold tracking-wider uppercase text-emerald-200">
-                      Live AI Vision Analysis
-                    </span>
-                  </div>
-                  <span className="text-[11px] text-stone-300">PashuCare Vision</span>
-                </div>
-
-                <div className="mt-4 space-y-3">
-                  <div className="p-3.5 rounded-xl bg-white/10 border border-white/10 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <span className="text-2xl">🐄</span>
-                      <div>
-                        <div className="text-xs font-bold text-white">Gir Cow (4 Yrs)</div>
-                        <div className="text-[11px] text-emerald-200">Symptoms: Mouth erosions, salivation</div>
-                      </div>
-                    </div>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/30 text-amber-200 border border-amber-400/30">
-                      FMD Suspected
-                    </span>
-                  </div>
-
-                  <div className="p-3.5 rounded-xl bg-white/10 border border-white/10 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <span className="text-2xl">🐃</span>
-                      <div>
-                        <div className="text-xs font-bold text-white">Murrah Buffalo (5 Yrs)</div>
-                        <div className="text-[11px] text-emerald-200">Symptoms: Cutaneous nodules</div>
-                      </div>
-                    </div>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-500/30 text-red-200 border border-red-400/30">
-                      LSD Suspected
-                    </span>
-                  </div>
-
-                  <div className="p-3.5 rounded-xl bg-white/10 border border-white/10 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <span className="text-2xl">🐐</span>
-                      <div>
-                        <div className="text-xs font-bold text-white">Osmanabadi Goat</div>
-                        <div className="text-[11px] text-emerald-200">Status: Regular healthy herd check</div>
-                      </div>
-                    </div>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/30 text-emerald-200 border border-emerald-400/30">
-                      Healthy (88/100)
-                    </span>
-                  </div>
-                </div>
-
-                <div className="mt-5 p-3 rounded-xl bg-emerald-950/70 border border-emerald-500/30 text-[11px] text-emerald-100 flex items-center gap-2">
-                  <ShieldCheck className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-                  <span>Helps reduce disease spread, protect milk production, and alert veterinarians early.</span>
-                </div>
-              </div>
-            </div>
+      {/* MAIN HERO CARD */}
+      <section className="rounded-2xl border border-stone-200 bg-white p-6 sm:p-10 shadow-sm text-stone-900">
+        <div className="space-y-4">
+          <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-md bg-stone-100 border border-stone-200 text-xs font-semibold text-stone-700">
+            <HeartPulse className="w-3.5 h-3.5 text-emerald-700" />
+            <span>PashuCare AI • Livestock Health</span>
           </div>
-        </div>
-      </section>
 
-      {/* MANDATORY SAFETY NOTICE */}
-      <section className="max-w-5xl mx-auto px-4">
-        <div className="p-4 sm:p-5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 flex items-start gap-3 shadow-2xs">
-          <AlertTriangle className="w-5 h-5 text-amber-700 flex-shrink-0 mt-0.5" />
-          <div className="text-xs sm:text-sm">
-            <strong className="font-bold block text-amber-950">
-              Important Safety & Clinical Disclaimer
-            </strong>
-            <p className="mt-0.5">
-              {t('disclaimerFull')}
-            </p>
-          </div>
-        </div>
-      </section>
+          <h1 className="text-2xl sm:text-4xl font-bold tracking-tight text-stone-900 leading-tight">
+            Check Your Animal's Health
+          </h1>
 
-      {/* HOW IT WORKS SECTION */}
-      <section id="how-it-works" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center max-w-2xl mx-auto mb-10">
-          <span className="text-xs font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full">
-            Simple 6-Step Workflow
-          </span>
-          <h2 className="text-2xl sm:text-3xl font-extrabold text-stone-900 mt-2">
-            How PashuCare AI Helps Your Farm
-          </h2>
-          <p className="text-xs sm:text-sm text-stone-500 mt-1">
-            Designed specifically for farmers and livestock owners in rural areas with voice input and multilingual guidance.
+          <p className="text-sm sm:text-base text-stone-600 max-w-2xl leading-relaxed">
+            Upload a photo or describe the symptoms to get a preliminary health assessment.
           </p>
+
+          {/* Call to action buttons */}
+          <div className="pt-2 flex flex-wrap items-center gap-3">
+            <button
+              id="home-check-animal-health-btn"
+              onClick={onStartCheck}
+              className="flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-semibold text-sm sm:text-base shadow-sm transition active:scale-98 cursor-pointer"
+            >
+              <HeartPulse className="w-5 h-5 text-emerald-100" />
+              <span>Check Animal Health</span>
+              <ArrowRight className="w-4 h-4 text-emerald-100 ml-1" />
+            </button>
+
+            <button
+              id="home-my-animals-btn"
+              onClick={() => onNavigate('animals')}
+              className="flex items-center justify-center gap-2 px-5 py-3.5 rounded-xl border border-stone-300 hover:bg-stone-50 text-stone-800 font-semibold text-sm sm:text-base transition cursor-pointer"
+            >
+              <Users className="w-4 h-4 text-stone-600" />
+              <span>My Animals</span>
+            </button>
+
+            <button
+              id="home-history-btn"
+              onClick={() => onNavigate('history')}
+              className="flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl text-stone-600 hover:text-stone-900 font-medium text-sm transition cursor-pointer"
+            >
+              <Clock className="w-4 h-4 text-stone-500" />
+              <span>Previous Reports</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* SUPPORTED ANIMALS SECTION */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base sm:text-lg font-bold text-stone-900">
+            Supported Animals
+          </h2>
+          <span className="text-xs text-stone-500">
+            Select an animal to begin health check
+          </span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {steps.map((st) => {
-            const Icon = st.icon;
-            return (
-              <div
-                key={st.num}
-                className="p-6 rounded-2xl bg-white border border-stone-200 shadow-2xs hover:border-emerald-600 transition flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 font-black text-sm flex items-center justify-center">
-                      {st.num}
-                    </span>
-                    <Icon className="w-5 h-5 text-stone-400" />
-                  </div>
-                  <h3 className="font-bold text-stone-900 text-base mb-1">
-                    {st.title}
-                  </h3>
-                  <p className="text-xs text-stone-600 leading-relaxed">
-                    {st.desc}
-                  </p>
-                </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {supportedLivestock.map((item) => (
+            <button
+              key={item.id}
+              onClick={onStartCheck}
+              className="flex flex-col text-left p-3.5 sm:p-4 rounded-xl border border-stone-200 bg-white hover:border-emerald-600 hover:bg-emerald-50/40 transition group cursor-pointer"
+            >
+              <div className="flex items-center justify-between w-full mb-1.5">
+                <span className="text-2xl" role="img" aria-label={item.name}>
+                  {item.icon}
+                </span>
+                <span className="text-xs text-stone-400 group-hover:text-emerald-700 font-bold transition">
+                  →
+                </span>
               </div>
-            );
-          })}
+              <span className="text-sm font-semibold text-stone-900 group-hover:text-emerald-900">
+                {item.name}
+              </span>
+              <span className="text-[11px] text-stone-500 line-clamp-1 mt-0.5">
+                {item.desc}
+              </span>
+            </button>
+          ))}
         </div>
       </section>
 
-      {/* SUPPORTED LIVESTOCK SPOTLIGHT */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="p-8 rounded-3xl bg-stone-900 text-white">
-          <div className="max-w-2xl mb-6">
-            <h2 className="text-2xl font-extrabold">
-              Supported Livestock Species
-            </h2>
-            <p className="text-xs sm:text-sm text-stone-400 mt-1">
-              PashuCare AI is tuned on veterinary literature for the major milk and meat-producing animals in India.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div
-              onClick={() => onNavigate('diseases')}
-              className="p-4 rounded-2xl bg-stone-800/80 hover:bg-stone-800 transition cursor-pointer border border-stone-700/60 text-center"
-            >
-              <div className="text-4xl mb-2">🐄</div>
-              <h3 className="font-bold text-sm">{t('animalCow')}</h3>
-              <span className="text-[11px] text-stone-400 block mt-0.5">Gir, Sahiwal, Red Sindhi, HF cross</span>
-            </div>
-
-            <div
-              onClick={() => onNavigate('diseases')}
-              className="p-4 rounded-2xl bg-stone-800/80 hover:bg-stone-800 transition cursor-pointer border border-stone-700/60 text-center"
-            >
-              <div className="text-4xl mb-2">🐃</div>
-              <h3 className="font-bold text-sm">{t('animalBuffalo')}</h3>
-              <span className="text-[11px] text-stone-400 block mt-0.5">Murrah, Jaffarabadi, Pandharpuri</span>
-            </div>
-
-            <div
-              onClick={() => onNavigate('diseases')}
-              className="p-4 rounded-2xl bg-stone-800/80 hover:bg-stone-800 transition cursor-pointer border border-stone-700/60 text-center"
-            >
-              <div className="text-4xl mb-2">🐐</div>
-              <h3 className="font-bold text-sm">{t('animalGoat')}</h3>
-              <span className="text-[11px] text-stone-400 block mt-0.5">Osmanabadi, Jamnapari, Sirohi</span>
-            </div>
-
-            <div
-              onClick={() => onNavigate('diseases')}
-              className="p-4 rounded-2xl bg-stone-800/80 hover:bg-stone-800 transition cursor-pointer border border-stone-700/60 text-center"
-            >
-              <div className="text-4xl mb-2">🐑</div>
-              <h3 className="font-bold text-sm">{t('animalSheep')}</h3>
-              <span className="text-[11px] text-stone-400 block mt-0.5">Deccani, Marwari, Nellore</span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* QUICK CTA FOOTER BANNER */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="rounded-3xl bg-gradient-to-r from-emerald-800 to-teal-800 text-white p-8 sm:p-12 shadow-lg flex flex-wrap items-center justify-between gap-6">
+      {/* EMERGENCY & HELPLINE NOTICE */}
+      <section className="p-4 sm:p-5 rounded-xl border border-stone-200 bg-stone-100/70 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <PhoneCall className="w-5 h-5 text-emerald-800 shrink-0 mt-0.5" />
           <div>
-            <h2 className="text-2xl sm:text-3xl font-black">
-              Notice Any Change in Your Animal Today?
-            </h2>
-            <p className="text-xs sm:text-sm text-emerald-100 mt-1 max-w-xl">
-              Don't wait until symptoms get worse. Take a photo and let PashuCare AI analyze lesions, fever signs, or behavioral cues in seconds.
+            <h3 className="text-sm font-semibold text-stone-900">
+              National Animal Emergency Helpline: 1962
+            </h3>
+            <p className="text-xs text-stone-600 mt-0.5">
+              Available 24x7 toll-free for urgent veterinary ambulance and emergency consultations across India.
             </p>
           </div>
-
-          <button
-            onClick={onStartCheck}
-            className="px-6 py-3.5 rounded-2xl bg-white text-emerald-950 hover:bg-emerald-50 font-black text-sm shadow-md transition active:scale-95 flex items-center gap-2"
-          >
-            <HeartPulse className="w-5 h-5 text-emerald-700" />
-            <span>{t('heroPrimaryBtn')}</span>
-          </button>
         </div>
+
+        <a
+          href="tel:1962"
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-semibold shrink-0 transition"
+        >
+          <PhoneCall className="w-3.5 h-3.5" />
+          <span>Call 1962</span>
+        </a>
       </section>
+
+      {/* CLINICAL DISCLAIMER */}
+      <section className="p-4 rounded-xl border border-stone-200 bg-white text-xs text-stone-500 space-y-1">
+        <div className="flex items-center gap-1.5 text-stone-700 font-semibold">
+          <ShieldAlert className="w-4 h-4 text-stone-500" />
+          <span>Preliminary Health Advisory Disclaimer</span>
+        </div>
+        <p className="leading-relaxed">
+          {t('disclaimerFull')}
+        </p>
+      </section>
+
     </div>
   );
 };
