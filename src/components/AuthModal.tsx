@@ -19,19 +19,12 @@ import {
 import { UserProfile, Language } from '../types';
 import { translations, getTranslation } from '../i18n/translations';
 import {
-  signInWithGoogle,
-  signInWithGooglePopup,
-  signInWithGoogleAccount,
-  getCurrentHostname,
   registerWithEmailPassword,
   signInWithEmailPassword,
   sendPasswordReset,
   setupPhoneRecaptcha,
   sendPhoneOtp,
-  confirmPhoneOtp,
-  onAuthUserChanged,
-  getUserProfileFromFirestore,
-  syncUserProfileToFirestore
+  confirmPhoneOtp
 } from '../lib/firebase';
 import { ConfirmationResult } from 'firebase/auth';
 
@@ -60,7 +53,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   // Loading & Feedback States
   const [isLoading, setIsLoading] = useState(false);
-  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
@@ -89,11 +81,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [otpCode, setOtpCode] = useState('');
   const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
 
-  // Custom Google Account state
-  const [showCustomGoogleInput, setShowCustomGoogleInput] = useState(false);
-  const [customGoogleEmail, setCustomGoogleEmail] = useState('');
-  const [customGoogleName, setCustomGoogleName] = useState('');
-
   // Reset when modal opens
   useEffect(() => {
     if (isOpen) {
@@ -107,209 +94,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   }, [isOpen, initialTab]);
 
-  // Real-time listener for Firebase auth state changes (e.g. signInWithPopup completion)
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const unsubscribe = onAuthUserChanged(async (fbUser) => {
-      if (fbUser) {
-        let profile = await getUserProfileFromFirestore(fbUser.uid);
-        if (!profile) {
-          profile = {
-            id: fbUser.uid,
-            name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Farmer',
-            email: fbUser.email || '',
-            phone: fbUser.phoneNumber || '',
-            preferredLanguage: language,
-            farmName: `${fbUser.displayName || 'Farmer'}'s Livestock Farm`,
-            farmLocation: 'Maharashtra, India',
-            role: fbUser.email?.toLowerCase().includes('admin') ? 'admin' : 'farmer',
-            photoUrl: fbUser.photoURL || undefined,
-            createdAt: new Date().toISOString(),
-          };
-          try {
-            await syncUserProfileToFirestore(profile);
-          } catch (e) {
-            console.debug('Firestore sync note:', e);
-          }
-        }
-
-        // Sync to backend database
-        try {
-          await fetch('/api/auth/google', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(profile),
-          });
-        } catch (e) {
-          console.debug('Backend sync note:', e);
-        }
-
-        localStorage.setItem('pashucare_user', JSON.stringify(profile));
-        setSuccessMessage(
-          language === 'hi'
-            ? `Google से सफलतापूर्वक साइन इन किया गया (${profile.name})!`
-            : language === 'mr'
-            ? `Google द्वारे यशस्वीरित्या साइन इन केले (${profile.name})!`
-            : `Successfully signed in with Google (${profile.name})!`
-        );
-        setTimeout(() => {
-          onSuccess(profile);
-          onClose();
-        }, 500);
-      }
-    });
-
-    return () => unsubscribe();
-  }, [isOpen, language, onSuccess, onClose]);
-
   // ==========================================
-  // 1. GOOGLE SIGN-IN HANDLER
-  // ==========================================
-  const handleGoogleSignIn = async () => {
-    setErrorMessage(null);
-    setSuccessMessage(null);
-    setIsGoogleLoading(true);
-
-    try {
-      const profile = await signInWithGoogle({
-        autoFallbackOnError: true,
-        fallbackEmail: 'thakareakash254@gmail.com',
-        fallbackName: 'Akash Thakare',
-      });
-      if (!profile) {
-        // Redirection initiated for standalone mobile browsers
-        return;
-      }
-      setSuccessMessage(
-        language === 'hi'
-          ? `Google से सफलतापूर्वक साइन इन किया गया (${profile.name})!`
-          : language === 'mr'
-          ? `Google द्वारे यशस्वीरित्या साइन इन केले (${profile.name})!`
-          : `Successfully signed in with Google (${profile.name})!`
-      );
-      setTimeout(() => {
-        onSuccess(profile);
-        onClose();
-      }, 500);
-    } catch (err: any) {
-      const errCode = err?.code || '';
-      const errMsg = err?.message || '';
-
-      // Explicitly handle when user closes or cancels the Google Sign-In popup
-      if (
-        errCode === 'auth/popup-closed-by-user' ||
-        errMsg.includes('auth/popup-closed-by-user') ||
-        errMsg.includes('popup-closed-by-user')
-      ) {
-        setErrorMessage(
-          language === 'hi'
-            ? 'साइन-इन विंडो बंद कर दी गई थी। कृपया पुनः प्रयास करने के लिए Google बटन पर क्लिक करें।'
-            : language === 'mr'
-            ? 'साइन-इन विंडो बंद केली गेली होती. कृपया पुन्हा प्रयत्न करण्यासाठी Google बटणावर क्लिक करा.'
-            : 'Sign-in window was closed before completing. Please click Google Sign-In to try again.'
-        );
-        return;
-      }
-
-      if (
-        errCode === 'auth/cancelled-popup-request' ||
-        errMsg.includes('auth/cancelled-popup-request') ||
-        errMsg.includes('cancelled-popup-request')
-      ) {
-        setErrorMessage(
-          language === 'hi'
-            ? 'साइन-इन विंडो का अनुरोध रद्द कर दिया गया था। केवल एक समय में एक ही साइन-इन विंडो खोली जा सकती है।'
-            : language === 'mr'
-            ? 'साइन-इन विनंती रद्द केली गेली होती. एका वेळी फक्त एकच साइन-इन विंडो उघडू शकते.'
-            : 'Sign-in popup request was cancelled. Only one sign-in window can be open at a time. Please try again.'
-        );
-        return;
-      }
-
-      console.warn('Google Sign-In caught error, completing via verified Google fallback profile:', err);
-      try {
-        const fallbackProfile = await signInWithGoogleAccount('thakareakash254@gmail.com', 'Akash Thakare');
-        setSuccessMessage(
-          language === 'hi'
-            ? `Google से सफलतापूर्वक साइन इन किया गया (${fallbackProfile.name})!`
-            : language === 'mr'
-            ? `Google द्वारे यशस्वीरित्या साइन इन केले (${fallbackProfile.name})!`
-            : `Successfully signed in with Google (${fallbackProfile.name})!`
-        );
-        setTimeout(() => {
-          onSuccess(fallbackProfile);
-          onClose();
-        }, 500);
-      } catch (fbErr: any) {
-        console.error('Fallback Google sign-in failure:', fbErr);
-        setErrorMessage(
-          language === 'hi'
-            ? 'Google साइन इन पूरा नहीं हो सका। कृपया पुनः प्रयास करें या ईमेल / फोन का उपयोग करें।'
-            : language === 'mr'
-            ? 'Google साइन इन पूर्ण होऊ शकले नाही. कृपया पुन्हा प्रयत्न करा किंवा ईमेल / फोन वापरा.'
-            : (err?.message || 'Google Sign-In could not be completed. Please try again or use Email / Phone below.')
-        );
-      }
-    } finally {
-      setIsGoogleLoading(false);
-    }
-  };
-
-  const handleDirectGoogleLogin = async (email: string, name: string) => {
-    setErrorMessage(null);
-    setSuccessMessage(null);
-    setIsGoogleLoading(true);
-    try {
-      const profile = await signInWithGoogleAccount(email, name);
-      setSuccessMessage(
-        language === 'hi'
-          ? `Google खाते से साइन इन किया गया: ${profile.name}`
-          : language === 'mr'
-          ? `Google खात्याद्वारे साइन इन केले: ${profile.name}`
-          : `Signed in with Google account: ${profile.name}`
-      );
-      setTimeout(() => {
-        onSuccess(profile);
-        onClose();
-      }, 500);
-    } catch (err: any) {
-      const errCode = err?.code || '';
-      const errMsg = err?.message || '';
-      if (
-        errCode === 'auth/popup-closed-by-user' ||
-        errMsg.includes('auth/popup-closed-by-user') ||
-        errMsg.includes('popup-closed-by-user')
-      ) {
-        setErrorMessage(
-          language === 'hi'
-            ? 'साइन-इन विंडो बंद कर दी गई थी। कृपया पुनः प्रयास करने के लिए क्लिक करें।'
-            : language === 'mr'
-            ? 'साइन-इन विंडो बंद केली गेली होती. कृपया पुन्हा प्रयत्न करण्यासाठी क्लिक करा.'
-            : 'Sign-in window was closed before completing. Please click to try again.'
-        );
-      } else if (
-        errCode === 'auth/cancelled-popup-request' ||
-        errMsg.includes('auth/cancelled-popup-request') ||
-        errMsg.includes('cancelled-popup-request')
-      ) {
-        setErrorMessage(
-          language === 'hi'
-            ? 'साइन-इन विंडो का अनुरोध रद्द कर दिया गया था। कृपया पुनः प्रयास करें।'
-            : language === 'mr'
-            ? 'साइन-इन विनंती रद्द केली गेली होती. कृपया पुन्हा प्रयत्न करा.'
-            : 'Sign-in popup request was cancelled. Please try again.'
-        );
-      } else {
-        setErrorMessage(err?.message || 'Failed to sign in with Google account.');
-      }
-    } finally {
-      setIsGoogleLoading(false);
-    }
-  };
-
-  // ==========================================
-  // 2. EMAIL & PASSWORD: REGISTER
+  // 1. EMAIL & PASSWORD: REGISTER
   // ==========================================
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -502,22 +288,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         setErrorMessage('Invalid phone number format. Please check the country code and number.');
       } else if (err.code === 'auth/quota-exceeded') {
         setErrorMessage('SMS quota exceeded for this project. Please try Google Sign-in or Email/Password.');
-      } else if (err.code === 'auth/popup-closed-by-user') {
-        setErrorMessage(
-          language === 'hi'
-            ? 'सत्यापन विंडो बंद कर दी गई थी। कृपया पुनः प्रयास करें।'
-            : language === 'mr'
-            ? 'पडताळणी विंडो बंद केली गेली होती. कृपया पुन्हा प्रयत्न करा.'
-            : 'Verification window was closed. Please try again.'
-        );
-      } else if (err.code === 'auth/cancelled-popup-request') {
-        setErrorMessage(
-          language === 'hi'
-            ? 'सत्यापन अनुरोध रद्द कर दिया गया था। कृपया पुनः प्रयास करें।'
-            : language === 'mr'
-            ? 'पडताळणी विनंती रद्द केली गेली होती. कृपया पुन्हा प्रयत्न करा.'
-            : 'Verification request was cancelled. Please try again.'
-        );
       } else {
         setErrorMessage(
           err.message || 'Failed to send SMS code. Make sure Phone provider is enabled in Firebase Console.'
@@ -648,93 +418,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <span>{successMessage}</span>
             </div>
           )}
-
-          {/* 1. GOOGLE SIGN-IN BUTTON */}
-          <button
-            id="google-signin-btn"
-            type="button"
-            disabled={isGoogleLoading || isLoading}
-            onClick={handleGoogleSignIn}
-            className="w-full py-2.5 px-4 rounded-xl bg-white hover:bg-stone-50 border border-stone-300 text-stone-700 font-bold text-xs sm:text-sm shadow-xs transition flex items-center justify-center gap-2.5 disabled:opacity-60 active:scale-[0.99]"
-          >
-            {isGoogleLoading ? (
-              <Loader2 className="w-4 h-4 animate-spin text-emerald-700" />
-            ) : (
-              <img
-                src="/google.svg"
-                alt="Google"
-                className="w-4.5 h-4.5 object-contain"
-                referrerPolicy="no-referrer"
-              />
-            )}
-            <span>{t('authGoogle')}</span>
-          </button>
-
-          {/* Quick 1-Click Google Profile Login Card */}
-          <div className="p-2.5 rounded-xl bg-emerald-50/80 border border-emerald-200/80 flex items-center justify-between gap-2.5 shadow-2xs">
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="w-7 h-7 rounded-full bg-emerald-700 text-white flex items-center justify-center text-[11px] font-black shrink-0 shadow-xs">
-                AT
-              </div>
-              <div className="min-w-0 text-left">
-                <div className="text-xs font-bold text-stone-900 truncate">Akash Thakare</div>
-                <div className="text-[11px] text-stone-500 truncate">thakareakash254@gmail.com</div>
-              </div>
-            </div>
-            <button
-              type="button"
-              id="btn-quick-google-akash"
-              disabled={isGoogleLoading || isLoading}
-              onClick={() => handleDirectGoogleLogin('thakareakash254@gmail.com', 'Akash Thakare')}
-              className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold shrink-0 transition shadow-xs flex items-center gap-1.5"
-            >
-              <span>{language === 'hi' ? 'सीधा लॉगिन करें' : language === 'mr' ? 'थेट लॉगिन' : '1-Click Login'}</span>
-            </button>
-          </div>
-
-          {/* Optional: Use another Google account */}
-          <div className="text-right">
-            <button
-              type="button"
-              onClick={() => setShowCustomGoogleInput(!showCustomGoogleInput)}
-              className="text-[11px] font-semibold text-emerald-700 hover:text-emerald-800 hover:underline"
-            >
-              {showCustomGoogleInput
-                ? (language === 'hi' ? 'छिपाएं' : 'Hide')
-                : (language === 'hi' ? '+ अन्य Google खाते से लॉगिन करें' : language === 'mr' ? '+ इतर Google खात्याने लॉगिन' : '+ Use another Google account')}
-            </button>
-          </div>
-
-          {showCustomGoogleInput && (
-            <div className="p-3 bg-stone-50 rounded-xl border border-stone-200 space-y-2">
-              <input
-                type="email"
-                value={customGoogleEmail}
-                onChange={(e) => setCustomGoogleEmail(e.target.value)}
-                placeholder="example@gmail.com"
-                className="w-full px-3 py-2 text-xs rounded-lg border border-stone-300 focus:outline-emerald-600 bg-white"
-              />
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  disabled={!customGoogleEmail || !customGoogleEmail.includes('@') || isGoogleLoading}
-                  onClick={() => handleDirectGoogleLogin(customGoogleEmail, customGoogleName || customGoogleEmail.split('@')[0])}
-                  className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold disabled:opacity-50"
-                >
-                  {language === 'hi' ? 'Google लॉगिन' : 'Sign in'}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* OR DIVIDER */}
-          <div className="relative flex items-center justify-center my-2">
-            <div className="border-t border-stone-200 w-full"></div>
-            <span className="bg-white px-3 text-[11px] font-bold text-stone-400 uppercase tracking-wider">
-              {t('authOrDivider')}
-            </span>
-            <div className="border-t border-stone-200 w-full"></div>
-          </div>
 
           {/* AUTH METHOD SELECTOR: Email/Password vs Phone (SMS) */}
           <div className="flex p-1 bg-stone-100 rounded-xl">

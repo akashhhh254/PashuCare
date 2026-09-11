@@ -14,10 +14,6 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   updateProfile,
-  GoogleAuthProvider,
-  signInWithPopup,
-  signInWithRedirect,
-  getRedirectResult,
   RecaptchaVerifier,
   signInWithPhoneNumber,
   ConfirmationResult,
@@ -56,32 +52,6 @@ import {
 // Resolve active Firebase configuration from Vite environment variables (e.g. Vercel deployment)
 // with safe fallback to bundled project configuration.
 const metaEnv = typeof import.meta !== 'undefined' ? (import.meta as any).env : undefined;
-
-// Helper to sanitize and validate a Firestore database ID.
-// Realtime Database URLs (e.g. https://...firebaseio.com) or paths containing slashes/colons
-// are NOT valid Firestore database IDs and cause Firestore initialization to throw an Invalid Segment error.
-function getValidFirestoreDatabaseId(idCandidate?: string): string | undefined {
-  if (!idCandidate || typeof idCandidate !== 'string') return undefined;
-  const trimmed = idCandidate.trim();
-  if (
-    !trimmed ||
-    trimmed.startsWith('http://') ||
-    trimmed.startsWith('https://') ||
-    trimmed.includes('/') ||
-    trimmed.includes(':') ||
-    trimmed.includes('firebaseio.com')
-  ) {
-    return undefined;
-  }
-  return trimmed;
-}
-
-// Prefer the explicit valid bundled Firestore database ID, fallback to valid environment variable if provided
-const resolvedFirestoreDatabaseId =
-  getValidFirestoreDatabaseId(bundledFirebaseConfig.firestoreDatabaseId) ||
-  getValidFirestoreDatabaseId(metaEnv?.VITE_FIREBASE_DATABASE_ID) ||
-  undefined;
-
 export const activeFirebaseConfig = {
   apiKey: metaEnv?.VITE_FIREBASE_API_KEY || bundledFirebaseConfig.apiKey,
   authDomain: metaEnv?.VITE_FIREBASE_AUTH_DOMAIN || bundledFirebaseConfig.authDomain,
@@ -89,7 +59,7 @@ export const activeFirebaseConfig = {
   storageBucket: metaEnv?.VITE_FIREBASE_STORAGE_BUCKET || bundledFirebaseConfig.storageBucket,
   messagingSenderId: metaEnv?.VITE_FIREBASE_MESSAGING_SENDER_ID || bundledFirebaseConfig.messagingSenderId,
   appId: metaEnv?.VITE_FIREBASE_APP_ID || bundledFirebaseConfig.appId,
-  firestoreDatabaseId: resolvedFirestoreDatabaseId,
+  firestoreDatabaseId: metaEnv?.VITE_FIREBASE_DATABASE_ID || bundledFirebaseConfig.firestoreDatabaseId,
   measurementId: metaEnv?.VITE_FIREBASE_MEASUREMENT_ID || bundledFirebaseConfig.measurementId,
 };
 
@@ -139,47 +109,14 @@ try {
         tabManager: persistentMultipleTabManager()
       })
     },
-    activeFirebaseConfig.firestoreDatabaseId
+    activeFirebaseConfig.firestoreDatabaseId || undefined
   );
-} catch (initErr) {
-  console.debug('Firestore initializeFirestore notice, falling back to getFirestore:', initErr);
+} catch {
   firestoreDb = activeFirebaseConfig.firestoreDatabaseId
     ? getFirestore(app, activeFirebaseConfig.firestoreDatabaseId)
     : getFirestore(app);
 }
 export const db: Firestore = firestoreDb;
-
-// Configure real Google Auth Provider with Authorized OAuth Client ID
-export const googleAuthProvider = new GoogleAuthProvider();
-googleAuthProvider.addScope('profile');
-googleAuthProvider.addScope('email');
-googleAuthProvider.addScope('openid');
-googleAuthProvider.setCustomParameters({
-  prompt: 'select_account',
-  ...(bundledFirebaseConfig.oAuthClientId ? { client_id: bundledFirebaseConfig.oAuthClientId } : {})
-});
-
-// Environment / Platform Detection Helpers
-export function isEmbeddedInIframe(): boolean {
-  if (typeof window === 'undefined') return false;
-  try {
-    return window.self !== window.top;
-  } catch {
-    return true;
-  }
-}
-
-export function isMobileBrowser(): boolean {
-  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
-  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768;
-}
-
-export function getCurrentHostname(): string {
-  if (typeof window !== 'undefined' && window.location) {
-    return window.location.hostname;
-  }
-  return '';
-}
 
 // Operation Types as required by Firebase skill
 export enum OperationType {
@@ -258,11 +195,9 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 async function testConnection() {
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
-  } catch (error: any) {
+  } catch (error) {
     if (error instanceof Error && error.message.includes('the client is offline')) {
       console.warn('Firebase client is offline. Verify configuration.');
-    } else {
-      console.debug('Firebase test connection check status:', error?.message || error);
     }
   }
 }
@@ -273,219 +208,7 @@ testConnection();
 // ==========================================
 
 /**
- * 1. Google Sign-In with Smart Popup & Fallback flow
- * - Attempts native Firebase Google popup
- * - Handles unauthorized domains or sandbox iframe popup blocks seamlessly
- */
-export async function signInWithGoogle(options?: {
-  autoFallbackOnError?: boolean;
-  fallbackEmail?: string;
-  fallbackName?: string;
-}): Promise<UserProfile | null> {
-  const inIframe = isEmbeddedInIframe();
-  const onMobile = isMobileBrowser();
-
-  // If user is on a mobile device and NOT running in an iframe (e.g. Vercel deployment),
-  // mobile browsers frequently suppress or mishandle popups. Redirect provides 100% reliable auth.
-  if (onMobile && !inIframe) {
-    try {
-      await signInWithRedirect(auth, googleAuthProvider);
-      return null; // Page will redirect to Google authentication
-    } catch (redirectErr) {
-      console.warn('Redirect initiation notice, attempting popup:', redirectErr);
-    }
-  }
-
-  // Desktop or iframe environment
-  try {
-    const userCredential = await signInWithPopup(auth, googleAuthProvider);
-    const fbUser = userCredential.user;
-
-    // Retrieve or create UserProfile in Firestore
-    let profile = await getUserProfileFromFirestore(fbUser.uid);
-    if (!profile) {
-      profile = {
-        id: fbUser.uid,
-        name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Farmer',
-        email: fbUser.email || '',
-        phone: fbUser.phoneNumber || '',
-        preferredLanguage: 'en',
-        farmName: `${fbUser.displayName ? fbUser.displayName.split(' ')[0] : 'Farmer'}'s Livestock Farm`,
-        farmLocation: 'Maharashtra, India',
-        role: (fbUser.email && fbUser.email.toLowerCase().includes('admin')) ? 'admin' : 'farmer',
-        photoUrl: fbUser.photoURL || undefined,
-        createdAt: new Date().toISOString()
-      };
-      await syncUserProfileToFirestore(profile);
-    }
-
-    // Synchronize authenticated profile with backend /api/auth/google
-    try {
-      await fetch('/api/auth/google', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(profile)
-      });
-    } catch (backendSyncErr) {
-      console.debug('Backend Google auth sync note:', backendSyncErr);
-    }
-
-    try {
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('pashucare_user', JSON.stringify(profile));
-      }
-    } catch {
-      // ignore
-    }
-
-    return profile;
-  } catch (popupErr: any) {
-    const errCode = popupErr?.code || '';
-    const errMsg = popupErr?.message || '';
-
-    // If popup was explicitly closed by the user or cancelled, DO NOT fallback - rethrow for explicit UI feedback
-    if (
-      errCode === 'auth/popup-closed-by-user' ||
-      errCode === 'auth/cancelled-popup-request' ||
-      errMsg.includes('popup-closed-by-user') ||
-      errMsg.includes('cancelled-popup-request')
-    ) {
-      throw popupErr;
-    }
-
-    // If popup was blocked and we are not in an iframe, fall back to redirect
-    if ((errCode === 'auth/popup-blocked' || errMsg.includes('popup-blocked')) && !inIframe) {
-      console.warn('Popup blocked, falling back to redirect flow...');
-      await signInWithRedirect(auth, googleAuthProvider);
-      return null;
-    }
-
-    // If autoFallbackOnError is requested (or defaulted for preview iframe sandboxes),
-    // handle unauthorized domain, popup-blocked, or operation-not-allowed seamlessly:
-    const isDomainOrPopupIssue =
-      errCode === 'auth/unauthorized-domain' ||
-      errCode === 'auth/popup-blocked' ||
-      errCode === 'auth/operation-not-allowed' ||
-      errCode === 'auth/internal-error' ||
-      errMsg.includes('unauthorized-domain') ||
-      errMsg.includes('popup-blocked');
-
-    if (options?.autoFallbackOnError && isDomainOrPopupIssue) {
-      console.info('Google popup could not run in preview sandbox, proceeding with verified Google account profile...');
-      return await signInWithGoogleAccount(
-        options.fallbackEmail || 'thakareakash254@gmail.com',
-        options.fallbackName || 'Akash Thakare'
-      );
-    }
-
-    throw popupErr;
-  }
-}
-
-/**
- * Sign in directly with Google Profile (used for 1-click Google authentication,
- * or when preview sandbox / iframe environment restricts external OAuth popups).
- */
-export async function signInWithGoogleAccount(
-  email: string = 'thakareakash254@gmail.com',
-  name: string = 'Akash Thakare',
-  photoUrl?: string
-): Promise<UserProfile> {
-  const cleanEmail = email.trim().toLowerCase();
-  const userId = `google-${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
-
-  let profile = await getUserProfileFromFirestore(userId);
-  if (!profile) {
-    profile = {
-      id: userId,
-      name: name || cleanEmail.split('@')[0],
-      email: cleanEmail,
-      phone: '',
-      preferredLanguage: 'hi',
-      farmName: `${(name || 'Farmer').split(' ')[0]}'s Dairy Farm`,
-      farmLocation: 'Maharashtra, India',
-      role: cleanEmail.includes('admin') ? 'admin' : 'farmer',
-      photoUrl: photoUrl || 'https://lh3.googleusercontent.com/a/default-user',
-      createdAt: new Date().toISOString()
-    };
-    await syncUserProfileToFirestore(profile);
-  }
-
-  // Also sync with backend /api/auth/google
-  try {
-    await fetch('/api/auth/google', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(profile)
-    });
-  } catch (e) {
-    console.debug('Backend Google auth sync note:', e);
-  }
-
-  return profile;
-}
-
-// Retain alias for backwards compatibility
-export const signInWithGooglePopup = signInWithGoogle as () => Promise<UserProfile>;
-
-/**
- * Handle redirect result when user returns from Google Sign-In on mobile
- */
-export async function handleRedirectAuthResult(): Promise<UserProfile | null> {
-  try {
-    const result = await getRedirectResult(auth);
-    if (!result || !result.user) return null;
-    const fbUser = result.user;
-
-    let profile = await getUserProfileFromFirestore(fbUser.uid);
-    if (!profile) {
-      profile = {
-        id: fbUser.uid,
-        name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Farmer',
-        email: fbUser.email || '',
-        phone: fbUser.phoneNumber || '',
-        preferredLanguage: 'en',
-        farmName: `${fbUser.displayName ? fbUser.displayName.split(' ')[0] : 'Farmer'}'s Livestock Farm`,
-        farmLocation: 'Maharashtra, India',
-        role: (fbUser.email && fbUser.email.toLowerCase().includes('admin')) ? 'admin' : 'farmer',
-        photoUrl: fbUser.photoURL || undefined,
-        createdAt: new Date().toISOString()
-      };
-      await syncUserProfileToFirestore(profile);
-    }
-
-    try {
-      await fetch('/api/auth/google', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(profile)
-      });
-    } catch (e) {
-      console.debug('Backend Google redirect auth sync note:', e);
-    }
-
-    try {
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('pashucare_user', JSON.stringify(profile));
-      }
-    } catch {
-      // ignore
-    }
-
-    return profile;
-  } catch (error: any) {
-    if (
-      error?.code !== 'auth/popup-closed-by-user' && 
-      error?.code !== 'auth/cancelled-popup-request'
-    ) {
-      console.warn('Redirect auth result notice:', error?.code || error?.message);
-    }
-    return null;
-  }
-}
-
-/**
- * 2. Email & Password Registration
+ * 1. Email & Password Registration
  */
 export async function registerWithEmailPassword(
   email: string,
@@ -724,15 +447,6 @@ export async function addAnimalToFirestore(animal: AnimalProfile): Promise<void>
     await setDoc(doc(db, 'animals', animal.id), animal);
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, path);
-  }
-}
-
-export async function updateAnimalInFirestore(animal: AnimalProfile): Promise<void> {
-  const path = `animals/${animal.id}`;
-  try {
-    await setDoc(doc(db, 'animals', animal.id), animal, { merge: true });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
   }
 }
 
